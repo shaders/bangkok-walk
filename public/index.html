@@ -376,10 +376,13 @@ function update(dt) {
       if (scrapeT < 0) { scrapeT = 0.22; sfxScrape(); }
     }
   }
-  if (scooterDown && liftT < 0 && t - downSince > 1.2 && (speed < 0.05 || t - downSince > 9)) {
-    liftT = 0; stopUntil = Math.max(stopUntil, t + 2.4); say(pick(LIFTS, Math.random()), 2);
+  if (scooterDown && liftT < 0 && !holding && speed < 0.05 && t - downSince > 0.8) {
+    liftT = 0; say(pick(LIFTS, Math.random()), 2);
   }
-  if (liftT >= 0) { liftT += dt; if (liftT > 2.0) { liftT = -1; scooterDown = false; } }
+  if (liftT >= 0) {
+    if (holding) liftT = -1;
+    else { liftT += dt; if (liftT > 2.0) { liftT = -1; scooterDown = false; } }
+  }
   const sTarget = scooterDown ? (liftT >= 0 ? 1 - smooth((liftT - 0.6) / 1.0) : 1) : 0;
   sRot += (sTarget - sRot) * Math.min(1, dt * 9);
 
@@ -387,15 +390,11 @@ function update(dt) {
     const dX = (px - camX) * H;
     const j0 = Math.floor((camX * FAC) / SLOT) - 1;
     for (let j = j0; j < j0 + 6; j++) {
-      if (watched.has(j) || eventType(j) < 0) continue;
+      if (watched.has(j) || !eventFn(j)) continue;
       const rel = eventX(j) - dX;
       if (rel > 0.05 * H && rel < 0.3 * H) {
         watched.add(j);
-        const r = Math.random();
-        if (r < 0.15) {
-          stopUntil = t + 2.5 + Math.random();
-          setTimeout(() => say(pick(WOWS, Math.random()), 2.2), 600);
-        } else if (r < 0.55) say(pick(WOWS, Math.random()), 2.2);
+        if (Math.random() < 0.5) say(pick(WOWS, Math.random()), 2.2);
         break;
       }
     }
@@ -558,9 +557,12 @@ function drawSkyline() {
 
 function drawFacades() {
   const topLimit = -OY / H - 0.1, off = camX * FAC, slot = 0.6;
-  const i0 = Math.floor(off / slot) - 1, i1 = i0 + Math.floor(W / H / slot) + 3;
+  const i0 = Math.floor(off / slot) - 5, i1 = i0 + Math.floor(W / H / slot) + 7;
   for (let i = i0; i <= i1; i++) {
     const x0 = (i * slot - off) * H, w = slot * H;
+    const kind = DISTRICTS[districtAt(i * slot)].kind;
+    if (kind !== "shop") { if (x0 + w > -0.1 * H || (kind === "temple" && x0 + 5 * w > 0)) DRAWERS[kind](x0, w, i, topLimit); continue; }
+    if (x0 + w < -0.1 * H || x0 > W + 0.1 * H) continue;
     const tower = rnd(i, 91) > 0.82;
     const floors = tower ? 8 + ((rnd(i, 92) * 9) | 0) : 2 + ((rnd(i, 93) * 5) | 0);
     const fh = 0.16, base = 0.45;
@@ -681,24 +683,383 @@ function rooftop(bx, bw, topY, i) {
   rect(bx, y - 0.015 * H, bx + bw, y, 0xFF1A1A1E);
 }
 
+// ---------------------------------------------------------------- districts
+
+const DL = 12;
+const DISTRICTS = [
+  { name: "Сукхумвит", kind: "shop" }, { name: "Яоварат", kind: "china" }, { name: "Каосан-роуд", kind: "khaosan" }, { name: "Ват Пхо", kind: "temple" },
+  { name: "Ночной рынок", kind: "market" }, { name: "Чао Прайя", kind: "river" }, { name: "Сой Ковбой", kind: "cowboy" }, { name: "Силом", kind: "cbd" }];
+const CN_SIGNS = ["金行", "大酒楼", "燕窝", "茶庄", "酒家", "按摩", "旅社", "金店", "药房"];
+const KS_SIGNS = ["BUCKET 199฿", "REGGAE BAR", "HAPPY HOUR", "NO ID NO PROBLEM", "CHEAP BEER", "TATTOO", "PAD THAI 50฿", "HOSTEL", "LADYBOY SHOW"];
+const CB_SIGNS = ["COWBOY", "LUCKY STAR", "PINK PANTHER", "BUNNY", "SHARK", "KISS", "BACCARA", "TILAC"];
+const MK_SIGNS = ["ส้มตำ", "ผลไม้", "เสื้อ 100฿", "ROTI", "MANGO STICKY RICE", "หมูกระทะ", "ไก่ทอด", "COCONUT 40฿"];
+const DISTRICT_EVENTS = {
+  shop: [evKungfu, evMuayThai, evGogo, evKaraoke, evBeerTable, evMassage, evCops, evTuktuk, evMonks, evElephant, evRelocant, evTiktok, evBrawl],
+  china: [evDragon, evKungfu, evBeerTable, evCops, evTiktok, evDragon],
+  khaosan: [evFireShow, evScorpion, evBrawl, evTuktuk, evTiktok, evMassage, evFireShow],
+  temple: [evMonks, evElephant, evTiktok, evTuktuk, evMonks],
+  market: [evBeerTable, evKaraoke, evRelocant, evScorpion, evTiktok],
+  river: [evFireShow, evMonks, evTiktok, evRelocant, evBeerTable],
+  cowboy: [evGogo, evMassage, evBrawl, evCops, evKaraoke, evGogo],
+  cbd: [evRelocant, evTiktok, evCops, evMuayThai, evKungfu],
+};
+
+function rawD(d) { return (rnd(d, 200) * DISTRICTS.length) | 0; }
+function districtAt(lx) {
+  const d = Math.floor(lx / DL);
+  if (d <= 0) return 0;
+  let k = rawD(d);
+  const p = d - 1 <= 0 ? 0 : rawD(d - 1);
+  if (k === p) k = (k + 1) % DISTRICTS.length;
+  return k;
+}
+const DRAWERS = { china: bChina, khaosan: bKhaosan, temple: bTemple, market: bMarket, river: bRiver, cowboy: bCowboy, cbd: bCbd };
+
+function farWalk(x0, w) {
+  rect(x0, 0.6 * H, x0 + w + 1, 0.64 * H, 0xFF4A4A50);
+  line(x0, 0.64 * H, x0 + w + 1, 0.64 * H, 0xFF6A6A70, 0.004 * H);
+}
+
+function neonBox(cx, y, s, size, nc, i) {
+  const on = sin(t * 9 + i * 7) > -0.92;
+  font(size);
+  const w = cv.measureText(s).width + size;
+  rrect(cx - w / 2, y - size * 1.1, cx + w / 2, y + size * 0.35, size * 0.2, 0xEE120810);
+  stroke(withA(nc, on ? 230 : 60), size * 0.08);
+  cv.beginPath();
+  if (cv.roundRect) cv.roundRect(cx - w / 2, y - size * 1.1, w, size * 1.45, size * 0.2); else cv.rect(cx - w / 2, y - size * 1.1, w, size * 1.45);
+  cv.stroke();
+  text(s, cx, y, size, on ? nc : withA(nc, 70), "center", on ? [nc, size * 0.5] : null);
+}
+
+function bChina(x0, w, i, topLimit) {
+  const floors = 3 + ((rnd(i, 201) * 3) | 0), base = 0.45, fh = 0.16, topY = base - fh * floors;
+  rect(x0, topY * H, x0 + w, 0.6 * H, pick([0xFF5A2E24, 0xFF4A3A28, 0xFF5C4A30, 0xFF3E2A22], rnd(i, 202)));
+  rect(x0, topY * H, x0 + 0.01 * H, 0.6 * H, 0x33000000);
+  for (let k = 1; k <= floors; k++) {
+    const fy = base - fh * k;
+    if (fy + fh < topLimit) continue;
+    line(x0, (fy + fh) * H, x0 + w, (fy + fh) * H, 0x44000000, 0.006 * H);
+    for (let n = 0; n < 3; n++) {
+      const wx2 = x0 + (n + 0.5) * w / 3;
+      if (rnd(i * 7 + k * 3 + n, 204) > 0.45) floorWindow(wx2, fy, i * 41 + k * 5 + n);
+      else {
+        rect(wx2 - 0.0375 * H, (fy + 0.035) * H, wx2 + 0.0375 * H, (fy + 0.12) * H, 0xFF141010);
+        rect(wx2 - 0.05 * H, (fy + 0.035) * H, wx2 - 0.0375 * H, (fy + 0.12) * H, 0xFF2A5A3A);
+        rect(wx2 + 0.0375 * H, (fy + 0.035) * H, wx2 + 0.05 * H, (fy + 0.12) * H, 0xFF2A5A3A);
+      }
+    }
+  }
+  for (let s = 0; s < 2; s++) {
+    if (rnd(i * 3 + s, 205) < 0.35 || 1 + s > floors) continue;
+    const sy = (base - fh * (1 + s) + 0.09) * H, nc = pick([0xFFFF3030, 0xFFFFD040, 0xFF30FF90, 0xFFFF60C0], rnd(i * 3 + s, 206));
+    neonBox(x0 + w / 2, sy, pick(CN_SIGNS, rnd(i * 3 + s, 207)), 0.05 * H, nc, i + s);
+  }
+  stroke(0xFF201010, 0.002 * H);
+  cv.beginPath(); cv.moveTo(x0, 0.37 * H); cv.quadraticCurveTo(x0 + w / 2, 0.4 * H, x0 + w, 0.37 * H); cv.stroke();
+  for (let k = 0; k < 3; k++) {
+    const lx = x0 + (k + 0.5) * w / 3, ly = 0.38 * H + sin((k + 0.5) / 3 * PI) * 0.012 * H + sin(t * 1.5 + k + i) * 0.002 * H;
+    glow(lx, ly + 0.015 * H, 0.05 * H, 0xFFFF3020, 120);
+    oval(lx - 0.018 * H, ly, lx + 0.018 * H, ly + 0.03 * H, 0xFFE02020);
+    rect(lx - 0.012 * H, ly - 0.004 * H, lx + 0.012 * H, ly + 0.002 * H, 0xFFD8A830);
+    line(lx, ly + 0.03 * H, lx, ly + 0.045 * H, 0xFFD8A830, 0.003 * H);
+  }
+  const gold = rnd(i, 208) > 0.5;
+  rect(x0 + 0.01 * H, 0.49 * H, x0 + w - 0.01 * H, 0.6 * H, gold ? 0xFF5A4010 : 0xFF2A1810);
+  if (gold) {
+    glow(x0 + w / 2, 0.54 * H, w * 0.6, 0xFFFFC830, 130);
+    for (let k = 0; k < 6; k++) rect(x0 + w * (0.1 + k * 0.14), 0.53 * H, x0 + w * (0.17 + k * 0.14), 0.55 * H, 0xFFFFD040);
+  }
+  rect(x0, 0.45 * H, x0 + w, 0.49 * H, 0xFFB01818);
+  text(gold ? "ห้างทอง 金" : "ภัตตาคาร 酒家", x0 + w / 2, 0.48 * H, 0.026 * H, 0xFFFFD040);
+  farWalk(x0, w);
+}
+
+function bKhaosan(x0, w, i, topLimit) {
+  const floors = 2 + ((rnd(i, 210) * 2) | 0), base = 0.45, fh = 0.16, topY = base - fh * floors;
+  rect(x0, topY * H, x0 + w, 0.6 * H, pick([0xFF2A5A5A, 0xFF7A4A2A, 0xFF5A2A4A, 0xFF3A4A2A], rnd(i, 211)));
+  for (let k = 1; k <= floors; k++) {
+    const fy = base - fh * k;
+    if (fy + fh < topLimit) continue;
+    for (let n = 0; n < 2; n++) floorWindow(x0 + (n + 0.5) * w / 2, fy, i * 37 + k * 5 + n);
+  }
+  for (let s = 0; s < 2; s++) {
+    if (s + 1 > floors) continue;
+    neonBox(x0 + w * (0.35 + 0.3 * s), (base - fh * s - 0.015) * H, pick(KS_SIGNS, rnd(i * 2 + s, 212)), 0.03 * H, pick(NEON, rnd(i * 2 + s, 213)), i * 2 + s);
+  }
+  stroke(0xFF151515, 0.002 * H);
+  cv.beginPath(); cv.moveTo(x0, (base - 0.1) * H); cv.lineTo(x0 + w / 2, (base - 0.04) * H); cv.lineTo(x0 + w, (base - 0.1) * H); cv.stroke();
+  for (let k = 0; k <= 8; k++) {
+    const kk = k / 8, bx = x0 + w * kk, by = (base - 0.1 + 0.06 * (1 - Math.abs(kk * 2 - 1))) * H;
+    circle(bx, by, 0.005 * H, withA(pick(NEON, rnd(i * 9 + k, 214)), 150 + 100 * sin(t * 6 + k)));
+  }
+  if (i % 6 === 0) {
+    line(x0 + 0.1 * w, 0.3 * H, x0 + 0.1 * w, 0.0, 0xFF333333, 0.002 * H);
+    rect(x0 + 0.1 * w, 0.3 * H, x0 + 1.9 * w, 0.355 * H, 0xFFF0F0E8);
+    text("KHAOSAN ROAD", x0 + w, 0.342 * H, 0.04 * H, 0xFFC81E1E);
+  }
+  const hue = mod(t * 40 + i * 70, 360);
+  rect(x0 + 0.01 * H, 0.49 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFF1A0A1E);
+  cv.fillStyle = "hsla(" + hue.toFixed(0) + ",90%,55%,0.35)";
+  cv.fillRect(x0 + 0.01 * H, 0.49 * H, w - 0.02 * H, 0.11 * H);
+  for (let n = 0; n < 3; n++) figure(x0 + w * (0.25 + n * 0.25), 0.6 * H, 0.09 * H, danceP(t * 5 + n * 2 + i, (n + i) & 3), 1, 0xEE0A0610);
+  rect(x0, 0.45 * H, x0 + w, 0.49 * H, 0xFF101010);
+  text(pick(["BAR", "BUCKETS", "BEER", "CLUB"], rnd(i, 215)), x0 + w / 2, 0.48 * H, 0.03 * H, pick(NEON, rnd(i, 216)), "center", [pick(NEON, rnd(i, 216)), 0.01 * H]);
+  farWalk(x0, w);
+}
+
+function bCowboy(x0, w, i, topLimit) {
+  const base = 0.45, topY = base - 0.32;
+  rect(x0, topY * H, x0 + w, 0.6 * H, 0xFF1C1418);
+  for (let n = 0; n < 2; n++) {
+    const wx2 = x0 + (n + 0.5) * w / 2;
+    rect(wx2 - 0.04 * H, (topY + 0.03) * H, wx2 + 0.04 * H, (topY + 0.11) * H, rnd(i * 2 + n, 220) > 0.5 ? 0xFF6A2A4A : 0xFF141018);
+  }
+  const nc = pick(NEON, rnd(i, 221));
+  neonBox(x0 + w / 2, (base - 0.09) * H, pick(CB_SIGNS, rnd(i, 222)), 0.045 * H, nc, i);
+  for (let k = 0; k < 2; k++) line(x0, (base - 0.025 + k * 0.012) * H, x0 + w, (base - 0.025 + k * 0.012) * H, withA(NEON[(i + k) % NEON.length], 200), 0.004 * H);
+  poly([x0, 0.45 * H, x0 + w, 0.45 * H, x0 + w - 0.02 * H, 0.49 * H, x0 + 0.02 * H, 0.49 * H], 0xFF8A2050);
+  rect(x0 + 0.01 * H, 0.49 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFF120810);
+  rect(x0 + w * 0.38, 0.5 * H, x0 + w * 0.62, 0.6 * H, 0xFFC02060);
+  for (let k = 0; k < 5; k++) line(x0 + w * (0.4 + k * 0.05), 0.5 * H, x0 + w * (0.4 + k * 0.05) + sin(t * 2 + k) * 0.003 * H, 0.6 * H, 0x55000000, 0.004 * H);
+  glow(x0 + w / 2, 0.55 * H, w * 0.5, 0xFFFF3090, 90);
+  farWalk(x0, w);
+}
+
+function bCbd(x0, w, i, topLimit) {
+  const tall = rnd(i, 230) > 0.3, top = tall ? topLimit - 0.1 : 0.05 + rnd(i, 231) * 0.15, bx = x0 + 0.02 * H, bw = w - 0.04 * H;
+  const g = cv.createLinearGradient(bx, 0, bx + bw, 0);
+  g.addColorStop(0, "#18283A"); g.addColorStop(1, "#2A4460");
+  cv.fillStyle = g; cv.fillRect(bx, top * H, bw, (0.6 - top) * H);
+  const cols = Math.floor(bw / (0.03 * H));
+  let r = 0;
+  for (let y = 0.45 * H - 0.035 * H; y > top * H; y -= 0.035 * H, r++) {
+    for (let c = 0; c < cols; c++) {
+      const lit = rnd(i * 997 + c, r) > 0.55;
+      rect(bx + c * 0.03 * H + 0.006 * H, y, bx + c * 0.03 * H + 0.024 * H, y + 0.022 * H, lit ? 0x99D8E8FF : 0x44101820);
+    }
+    if (i % 7 === 3) {
+      const px2 = bx + bw * (0.5 + 0.35 * sin(r * 0.35));
+      rect(px2 - 0.04 * H, y - 0.005 * H, px2 + 0.04 * H, y + 0.03 * H, 0xFF06060C);
+    }
+  }
+  if (!tall && sin(t * 2 + i) > 0) glow(bx + bw / 2, top * H, 0.015 * H, 0xFFFF2020, 230);
+  rect(x0 + 0.01 * H, 0.47 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFFC8D4DE);
+  for (let k = 1; k < 6; k++) line(x0 + w * k / 6, 0.47 * H, x0 + w * k / 6, 0.6 * H, 0x66708090, 0.003 * H);
+  glow(x0 + w / 2, 0.54 * H, w * 0.5, 0xFFFFFFFF, 60);
+  rect(x0, 0.3 * H, x0 + w + 1, 0.345 * H, 0xFF8E8E8A);
+  rect(x0, 0.345 * H, x0 + w + 1, 0.355 * H, 0xFF5E5E5C);
+  rect(x0 + w / 2 - 0.02 * H, 0.355 * H, x0 + w / 2 + 0.02 * H, 0.6 * H, 0xFF707070);
+  const baseL = Math.floor(i * 0.6 / DL) * DL, head = baseL + mod(t * 0.7, DL + 4) - 2;
+  const a = Math.max(i * 0.6, head - 2.2), b = Math.min(i * 0.6 + 0.6, head);
+  if (b > a) {
+    const sa = (a - camX * FAC) * H, sb = (b - camX * FAC) * H;
+    rect(sa, 0.235 * H, sb, 0.3 * H, 0xFFE4E4EA);
+    rect(sa, 0.275 * H, sb, 0.285 * H, 0xFF1E9E4A);
+    for (let x = sa + 0.02 * H; x < sb - 0.05 * H; x += 0.09 * H) rect(x, 0.245 * H, x + 0.06 * H, 0.268 * H, 0xFFFFE9B0);
+  }
+  farWalk(x0, w);
+}
+
+function bTemple(x0, w, i, topLimit) {
+  if (i % 5 === 0) ubosot(x0 + w * 2.5);
+  if (i % 5 === 3) chedi(x0 + w * 0.5);
+  rect(x0, 0.5 * H, x0 + w + 1, 0.6 * H, 0xFFE0D8C8);
+  rect(x0, 0.49 * H, x0 + w + 1, 0.5 * H, 0xFFC03020);
+  line(x0, 0.5 * H, x0 + w + 1, 0.5 * H, 0xFFD8A830, 0.004 * H);
+  for (let x = x0 + 0.04 * H; x < x0 + w; x += 0.1 * H) poly([x, 0.535 * H, x + 0.015 * H, 0.55 * H, x, 0.565 * H, x - 0.015 * H, 0.55 * H], 0xFFD8A830);
+  if (i % 2 === 0) glow(x0 + w / 2, 0.49 * H, 0.06 * H, 0xFFFFE0A0, 160);
+  farWalk(x0, w);
+}
+
+function ubosot(cx) {
+  const U = H;
+  glow(cx, 0.3 * U, 1.0 * U, 0xFFFFC870, 60);
+  rect(cx - 0.8 * U, 0.3 * U, cx + 0.8 * U, 0.5 * U, 0xFFF0E8D8);
+  for (let x = cx - 0.75 * U; x <= cx + 0.75 * U; x += 0.15 * U) rect(x - 0.015 * U, 0.3 * U, x + 0.015 * U, 0.5 * U, 0xFFD8A830);
+  for (const s of [-1, 1]) rrect(cx + s * 0.3 * U - 0.06 * U, 0.38 * U, cx + s * 0.3 * U + 0.06 * U, 0.5 * U, 0.03 * U, 0xFF7A1A1A);
+  for (let k = 0; k < 3; k++) {
+    const ww = (0.95 - k * 0.22) * U, yb = (0.32 - k * 0.07) * U, ya = yb - (0.18 - k * 0.02) * U;
+    poly([cx - ww, yb, cx, ya, cx + ww, yb], k % 2 ? 0xFF1E6A3A : 0xFFC0401A);
+    stroke(0xFFD8A830, 0.008 * U);
+    cv.beginPath(); cv.moveTo(cx - ww, yb); cv.lineTo(cx, ya); cv.lineTo(cx + ww, yb); cv.stroke();
+    for (const s of [-1, 1]) {
+      cv.beginPath(); cv.moveTo(cx + s * ww, yb); cv.quadraticCurveTo(cx + s * (ww + 0.03 * U), yb, cx + s * (ww + 0.03 * U), yb - 0.05 * U); cv.stroke();
+    }
+    cv.beginPath(); cv.moveTo(cx, ya); cv.quadraticCurveTo(cx + 0.01 * U, ya - 0.05 * U, cx + 0.04 * U, ya - 0.06 * U); cv.stroke();
+  }
+  circle(cx, 0.24 * U, 0.03 * U, 0xFFD8A830);
+}
+
+function chedi(cx) {
+  glow(cx, 0.25 * H, 0.5 * H, 0xFFFFD060, 70);
+  rect(cx - 0.2 * H, 0.42 * H, cx + 0.2 * H, 0.5 * H, 0xFFB88A20);
+  rect(cx - 0.15 * H, 0.36 * H, cx + 0.15 * H, 0.42 * H, 0xFFC89A28);
+  fill(0xFFE0B030);
+  cv.beginPath(); cv.moveTo(cx - 0.14 * H, 0.36 * H);
+  cv.quadraticCurveTo(cx - 0.14 * H, 0.18 * H, cx, 0.16 * H); cv.quadraticCurveTo(cx + 0.14 * H, 0.18 * H, cx + 0.14 * H, 0.36 * H); cv.fill();
+  for (let k = 0; k < 6; k++) rect(cx - (0.035 - k * 0.004) * H, (0.155 - k * 0.012) * H, cx + (0.035 - k * 0.004) * H, (0.163 - k * 0.012) * H, 0xFFD0A028);
+  poly([cx - 0.012 * H, 0.09 * H, cx, -0.1 * H, cx + 0.012 * H, 0.09 * H], 0xFFE8C040);
+  line(cx - 0.08 * H, 0.33 * H, cx - 0.05 * H, 0.21 * H, 0x66FFFFFF, 0.01 * H);
+}
+
+function bMarket(x0, w, i, topLimit) {
+  const c1 = pick([0xFFD02A2A, 0xFF2A5AD0, 0xFF2AA050, 0xFFE0A020], rnd(i, 240));
+  glow(x0 + w / 2, 0.5 * H, w * 0.7, 0xFFFFC070, 70);
+  line(x0 + 0.03 * H, 0.42 * H, x0 + 0.03 * H, 0.6 * H, 0xFF888888, 0.006 * H);
+  line(x0 + w - 0.03 * H, 0.42 * H, x0 + w - 0.03 * H, 0.6 * H, 0xFF888888, 0.006 * H);
+  for (let k = 0; k < 6; k++) {
+    const a = x0 + w * k / 6, b = x0 + w * (k + 1) / 6;
+    poly([a + (b - a) * 0.1, 0.41 * H, b + (b - a) * 0.1 - 1, 0.41 * H, b, 0.46 * H, a, 0.46 * H], k % 2 ? 0xFFF0F0F0 : c1);
+    circle((a + b) / 2, 0.46 * H, (b - a) / 2, k % 2 ? 0xFFF0F0F0 : c1);
+  }
+  stroke(0xFF151515, 0.002 * H);
+  cv.beginPath(); cv.moveTo(x0, 0.38 * H); cv.quadraticCurveTo(x0 + w / 2, 0.41 * H, x0 + w, 0.38 * H); cv.stroke();
+  for (let k = 0; k < 4; k++) {
+    const bx = x0 + (k + 0.5) * w / 4, by = 0.385 * H + sin((k + 0.5) / 4 * PI) * 0.02 * H;
+    glow(bx, by, 0.03 * H, 0xFFFFD890, 160); circle(bx, by, 0.006 * H, 0xFFFFF0C0);
+  }
+  rect(x0 + 0.1 * w, 0.475 * H, x0 + 0.9 * w, 0.51 * H, 0xFFF8F0E0);
+  text(pick(MK_SIGNS, rnd(i, 241)), x0 + w / 2, 0.502 * H, 0.025 * H, 0xFF8A1A1A);
+  figure(x0 + w * 0.5, 0.565 * H, 0.1 * H, mod(t + i, 4) < 1 ? waveP(t) : STAND, 1, 0xFFD8B898, { shirt: pick([0xFF2A6A9A, 0xFFE87A2A, 0xFF5A5A5A], rnd(i, 242)) });
+  rect(x0 + 0.05 * H, 0.54 * H, x0 + w - 0.05 * H, 0.565 * H, 0xFFB0B0B0);
+  for (let k = 0; k < 8; k++) circle(x0 + 0.07 * H + k * (w - 0.14 * H) / 7, 0.535 * H, 0.01 * H, pick([0xFFFF8A20, 0xFF40C040, 0xFFE8D040, 0xFFE03030, 0xFFF0F0F0], rnd(i * 8 + k, 243)));
+  rect(x0 + 0.06 * H, 0.565 * H, x0 + 0.07 * H, 0.6 * H, 0xFF888888);
+  rect(x0 + w - 0.07 * H, 0.565 * H, x0 + w - 0.06 * H, 0.6 * H, 0xFF888888);
+  farWalk(x0, w);
+}
+
+function bRiver(x0, w, i, topLimit) {
+  rect(x0, 0.455 * H, x0 + w + 1, 0.47 * H, 0xFF0C0C14);
+  for (let k = 0; k < 3; k++) circle(x0 + w * (0.2 + k * 0.3), 0.455 * H, (0.02 + rnd(i * 3 + k, 250) * 0.02) * H, 0xFF0A120C);
+  if (i % 9 === 0) watArun(x0 + w * 0.5);
+  else if (i % 9 === 5) iconsiam(x0 + w * 0.5);
+  const g = cv.createLinearGradient(0, 0.47 * H, 0, 0.6 * H);
+  g.addColorStop(0, "#0A1A34"); g.addColorStop(1, "#050C18");
+  cv.fillStyle = g; cv.fillRect(x0, 0.47 * H, w + 1, 0.13 * H);
+  for (let k = 0; k < 6; k++) {
+    const rx = x0 + rnd(i * 6 + k, 251) * w, ry = (0.48 + rnd(i * 6 + k, 252) * 0.1) * H, l = (0.02 + rnd(i * 6 + k, 253) * 0.04) * H;
+    line(rx - l / 2 + sin(t * 1.5 + k) * 0.01 * H, ry, rx + l / 2 + sin(t * 1.5 + k) * 0.01 * H, ry, withA(pick(NEON.concat([0xFFFFD890, 0xFFFFD890]), rnd(i * 6 + k, 254)), 90 + 60 * sin(t * 3 + k)), 0.004 * H);
+  }
+  const baseL = Math.floor(i * 0.6 / DL) * DL, bl = baseL + mod(t * 0.25 + i * 0, DL + 2) - 1;
+  if (bl >= i * 0.6 && bl < i * 0.6 + 0.6) {
+    const bxS = (bl - camX * FAC) * H, by = 0.55 * H;
+    poly([bxS - 0.15 * H, by - 0.02 * H, bxS + 0.13 * H, by - 0.02 * H, bxS + 0.18 * H, by - 0.05 * H, bxS + 0.1 * H, by + 0.005 * H, bxS - 0.13 * H, by + 0.005 * H], 0xFF4A2A18);
+    for (let k = 0; k < 4; k++) circle(bxS + 0.17 * H - k * 0.01 * H, by - 0.045 * H + k * 0.005 * H, 0.005 * H, pick(NEON, rnd(k, 255)));
+    figure(bxS - 0.12 * H, by - 0.02 * H, 0.07 * H, STAND, 1, 0xFFC8A070);
+    glow(bxS, by - 0.03 * H, 0.05 * H, 0xFFFFD890, 120);
+    for (let k = 1; k < 4; k++) line(bxS - 0.15 * H - k * 0.05 * H, by + 0.004 * H, bxS - 0.15 * H - k * 0.05 * H + 0.03 * H, by + 0.004 * H, 0x44FFFFFF, 0.003 * H);
+  }
+  line(x0, 0.585 * H, x0 + w + 1, 0.585 * H, 0xFFB0B0B0, 0.004 * H);
+  for (let x = x0; x < x0 + w; x += 0.06 * H) line(x, 0.585 * H, x, 0.6 * H, 0xFF909090, 0.003 * H);
+  farWalk(x0, w);
+}
+
+function watArun(cx) {
+  glow(cx, 0.3 * H, 0.45 * H, 0xFFFFC870, 80);
+  for (const s of [-1, 1]) {
+    for (let k = 0; k < 3; k++) rect(cx + s * 0.22 * H - (0.05 - k * 0.012) * H, (0.455 - (k + 1) * 0.04) * H, cx + s * 0.22 * H + (0.05 - k * 0.012) * H, (0.455 - k * 0.04) * H, 0xFFD8CCB0);
+    poly([cx + s * 0.22 * H - 0.012 * H, 0.335 * H, cx + s * 0.22 * H, 0.28 * H, cx + s * 0.22 * H + 0.012 * H, 0.335 * H], 0xFFD8CCB0);
+  }
+  for (let k = 0; k < 7; k++) {
+    const hw = (0.12 - k * 0.015) * H, y1 = (0.455 - k * 0.045) * H, y0 = y1 - 0.045 * H;
+    rect(cx - hw, y0, cx + hw, y1, k % 2 ? 0xFFE0D4B8 : 0xFFD0C4A8);
+    line(cx - hw, y0, cx + hw, y0, 0xFFFFD060, 0.003 * H);
+  }
+  poly([cx - 0.02 * H, 0.14 * H, cx, 0.05 * H, cx + 0.02 * H, 0.14 * H], 0xFFE0D4B8);
+  line(cx, 0.05 * H, cx, 0.01 * H, 0xFFFFD060, 0.004 * H);
+  cv.save(); cv.translate(0, 0.47 * H); cv.scale(1, 0.3); glow(cx, 0.2 * H, 0.15 * H, 0xFFFFC870, 90); cv.restore();
+}
+
+function iconsiam(cx) {
+  rect(cx - 0.42 * H, 0.27 * H, cx + 0.42 * H, 0.455 * H, 0xFF203048);
+  for (let k = 0; k < 12; k++) {
+    const x = cx - 0.42 * H + k * 0.07 * H;
+    line(x, 0.455 * H, x + 0.05 * H, 0.27 * H, withA(0xFF40E0FF, 120 + 80 * sin(t * 2 + k)), 0.004 * H);
+  }
+  text("ICONSIAM", cx, 0.255 * H, 0.04 * H, 0xFF60F0FF, "center", [0xFF00E5FF, 0.02 * H]);
+}
+
+// ---------------------------------------------------------------- district events
+
+function evFireShow(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  const a = lt * 9;
+  const P = [0, -0.15, 0.1, 0.15, 0.1, a, 0, a + PI, 0, 0.02 * sin(lt * 4), 0, 0];
+  figure(cx, G, S, P, 1, 0xFFC89070);
+  const nx = cx, ny = G - S * 0.8;
+  for (const off of [0, PI]) {
+    for (let k = 0; k < 12; k++) {
+      const ak = a + off - k * 0.18;
+      const fx = nx + sin(ak) * S * 0.5, fy = ny + cos(ak) * S * 0.5;
+      glow(fx, fy, (0.035 - k * 0.002) * U, k < 2 ? 0xFFFFE070 : 0xFFFF6A1A, 220 - k * 18);
+    }
+  }
+  for (let n = 0; n < 3; n++) figure(cx + (-0.25 + n * 0.25 + (n === 1 ? 0.03 : 0)) * U, G + 0.02 * U, S * 0.85, cheerP(lt * 2 + n), n === 0 ? 1 : -1, 0xFFB8B8C8);
+  if (mod(lt, 6) < 1.8) bubble(cx, G - S * 1.5, ["โอ้โห!", "охуеть!"], 0.026 * H, 1);
+}
+
+function evDragon(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  for (let n = 0; n < 4; n++) {
+    const P = walkP(lt * 5 + n, false); P[5] = 2.8; P[6] = 0.2; P[7] = 2.8; P[8] = 0.2;
+    figure(cx + (-0.27 + n * 0.18) * U, G, S, P, 1, 0xFFE8D0B0, { shirt: 0xFFD8A830 });
+  }
+  for (let k = 0; k < 10; k++) {
+    const x = cx + (-0.35 + k * 0.07) * U, y = G - S * 1.05 + sin(lt * 4 + k * 0.7) * 0.03 * U;
+    circle(x, y, 0.035 * U, k % 2 ? 0xFFD82020 : 0xFFE84020);
+    stroke(0xFFFFD040, 0.004 * U); cv.beginPath(); cv.arc(x, y, 0.03 * U, PI, 2 * PI); cv.stroke();
+  }
+  const hx = cx + 0.33 * U, hy = G - S * 1.05 + sin(lt * 4 + 7) * 0.03 * U;
+  rrect(hx - 0.03 * U, hy - 0.05 * U, hx + 0.07 * U, hy + 0.03 * U, 0.015 * U, 0xFFE02020);
+  circle(hx + 0.03 * U, hy - 0.03 * U, 0.012 * U, 0xFFFFFFFF); circle(hx + 0.034 * U, hy - 0.03 * U, 0.006 * U, 0xFF111111);
+  line(hx + 0.06 * U, hy, hx + 0.1 * U, hy + 0.02 * U + sin(lt * 6) * 0.01 * U, 0xFFFFD040, 0.004 * U);
+  rect(hx - 0.02 * U, hy + 0.015 * U, hx + 0.07 * U, hy + 0.03 * U, 0xFFFFD040);
+  const drum = mod(lt * 3, 1) < 0.5;
+  const dP = STAND.slice(); dP[7] = drum ? 1.8 : 1.2; dP[8] = 0.5; dP[5] = drum ? 1.2 : 1.8; dP[6] = 0.5;
+  figure(cx - 0.45 * U, G, S, dP, 1, 0xFFE8D0B0, { shirt: 0xFFD82020 });
+  oval(cx - 0.42 * U, G - S * 0.6, cx - 0.34 * U, G - S * 0.25, 0xFFB01818);
+  if (mod(lt, 7) < 2) bubble(cx, G - S * 1.6, ["恭喜发财!", "бабла вам!"], 0.026 * H, 1);
+}
+
+function evScorpion(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.14 * U, G - 0.11 * U, cx + 0.14 * U, G - 0.03 * U, 0xFFB8B8C0);
+  rect(cx - 0.13 * U, G - 0.16 * U, cx + 0.13 * U, G - 0.11 * U, 0x55FFE0A0);
+  for (let k = 0; k < 6; k++) {
+    const x = cx - 0.11 * U + k * 0.044 * U;
+    line(x, G - 0.11 * U, x, G - 0.2 * U, 0xFFC8A060, 0.003 * U);
+    oval(x - 0.012 * U, G - 0.2 * U, x + 0.012 * U, G - 0.17 * U, 0xFF15100C);
+    line(x, G - 0.2 * U, x + 0.01 * U, G - 0.215 * U, 0xFF15100C, 0.004 * U);
+  }
+  wheel(cx - 0.1 * U, G - 0.02 * U, 0.02 * U); wheel(cx + 0.1 * U, G - 0.02 * U, 0.02 * U);
+  neonBox(cx, G - 0.24 * U, "SCORPION 100฿ · PHOTO 10฿", 0.022 * U, 0xFFFFD23F, j);
+  figure(cx - 0.2 * U, G, S, waveP(lt), 1, 0xFFC8A070, { shirt: 0xFF2A9A5A });
+  const P = STAND.slice(); P[7] = 1.6; P[8] = 0.6; P[5] = 1.4; P[6] = 0.8;
+  figure(cx + 0.25 * U, G, S * 1.05, P, -1, 0xFFFF9A8A, { shirt: 0xFF4AC8E8, hat: "sun" });
+  if (mod(lt, 3) < 0.12) glow(cx + 0.2 * U, G - S * 0.75, 0.15 * U, 0xFFFFFFFF, 220);
+  const c = mod(lt, 8);
+  if (c < 2.5) bubble(cx - 0.2 * U, G - S * 1.15, "Photo 10 baht!", 0.026 * H, 1);
+  else if (c > 4 && c < 6) bubble(cx + 0.25 * U, G - S * 1.25, "Фу бля", 0.026 * H, 1);
+}
+
 // ---------------------------------------------------------------- events
 
-const EVENTS = [evKungfu, evMuayThai, evGogo, evKaraoke, evBeerTable, evMassage, evCops, evTuktuk, evMonks, evElephant, evRelocant, evTiktok, evBrawl];
-
-function eventType(j) {
-  if (rnd(j, 140) < 0.08) return -1;
-  return (rnd(j, 141) * EVENTS.length) | 0;
+function eventFn(j) {
+  if (rnd(j, 140) < 0.08) return null;
+  const list = DISTRICT_EVENTS[DISTRICTS[districtAt(j * SLOT + SLOT / 2)].kind];
+  return pick(list, rnd(j, 141));
 }
 
 function drawEvents() {
   const off = camX * FAC;
   const j0 = Math.floor(off / SLOT) - 1, j1 = j0 + Math.floor(W / H / SLOT) + 3;
   for (let j = j0; j <= j1; j++) {
-    const ty = eventType(j);
-    if (ty < 0) continue;
+    const fn = eventFn(j);
+    if (!fn) continue;
     const cx = eventX(j);
     if (cx < -0.8 * H || cx > W + 0.8 * H) continue;
-    EVENTS[ty](cx, j, t + rnd(j, 142) * 30);
+    fn(cx, j, t + rnd(j, 142) * 30);
   }
 }
 
@@ -1357,7 +1718,7 @@ function drawHud() {
   const hs = Math.min(SW, SH), sh = [0xFF000000, 0.008 * hs, 0.003 * hs];
   const m = 23 * 60 + 47 + ((t / 6) | 0);
   const clock = String(((m / 60) | 0) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-  text("Бангкок · Сукхумвит · " + clock, 0.04 * hs, 0.07 * hs, 0.042 * hs, 0xFFFFFFFF, "left", sh);
+  text("Бангкок · " + DISTRICTS[districtAt(camX * FAC + (px - camX) * 1)].name + " · " + clock, 0.04 * hs, 0.07 * hs, 0.042 * hs, 0xFFFFFFFF, "left", sh);
   text("Пройдено: " + (meters | 0) + " м", 0.04 * hs, 0.115 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
   text("Скурено: " + cigs + " · Выпито чанги: " + beers, 0.04 * hs, 0.155 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
   const st = drunk < 0.5 ? "трезвый" : drunk < 1.5 ? "навеселе" : drunk < 2.5 ? "хорошо так" : "в говно";
