@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Bangkok Walk</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07040f; overflow: hidden; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+const FY = 0.92, CH = 0.30, SPEED = 0.2, ROPE = 0.30, SC = 0.13;
+const SIGNS = ["BANGKOK", "SIAM", "7-ELEVEN", "กรุงเทพ", "MBK", "SOI 11", "NANA", "ช้าง", "LEO", "MASSAGE", "ICONSIAM", "SINGHA"];
+const NEON = [0xFFFF2D95, 0xFF00E5FF, 0xFFB44CFF, 0xFFFFD23F, 0xFF39FF88, 0xFFFF5A36];
+const ADS = ["SALE 70%", "MAMA", "SINGHA", "PAD THAI", "LEO BEER", "K-POP"];
+const FONT = "bold %px -apple-system, 'Segoe UI', Roboto, 'Noto Sans Thai', sans-serif";
+
+const cvs = document.getElementById("c");
+const cv = cvs.getContext("2d");
+let SW, SH, W, H, OY, dpr;
+
+let t = 0, last = 0;
+let px = 0, camX = 0, phase = 0, amp = 0, bob = 0, face = 1, holdDir = 0;
+let sx = -ROPE, wheelRot = 0, sFace = 1, handX = 0, handY = 0;
+let hasCig = false, lit = false, cigLen = 0, emberGlow = 0.35, lightT = -1, dragT = -1, idleSmoke = 0;
+let cigs = 0, meters = 0, hintT = 8;
+let btnX, btnY, btnR;
+const parts = [];
+const keys = { l: false, r: false };
+const pointers = new Map();
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  SW = window.innerWidth; SH = window.innerHeight;
+  cvs.width = Math.round(SW * dpr); cvs.height = Math.round(SH * dpr);
+  W = SW;
+  H = Math.min(SH, SW / 1.3);
+  OY = SH - H;
+  btnR = H * 0.11;
+  btnX = SW - H * 0.17;
+  btnY = SH - H * 0.17;
+}
+window.addEventListener("resize", resize);
+resize();
+
+function rnd(i, salt) {
+  let h = Math.imul(i, 0x9E3779B1) ^ Math.imul(salt, 0x85EBCA77);
+  h ^= h >>> 16; h = Math.imul(h, 0x7FEB352D);
+  h ^= h >>> 15; h = Math.imul(h, 0x846CA68B);
+  h ^= h >>> 16;
+  return (h & 0xFFFFFF) / 16777216;
+}
+const mod = (a, m) => { const r = a % m; return r < 0 ? r + m : r; };
+const lerp = (a, b, k) => a + (b - a) * k;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const smooth = k => k * k * (3 - 2 * k);
+const sin = Math.sin, cos = Math.cos;
+const withA = (c, a) => ((c & 0xFFFFFF) | (a << 24)) >>> 0;
+function css(c) {
+  return "rgba(" + ((c >>> 16) & 255) + "," + ((c >>> 8) & 255) + "," + (c & 255) + "," + (((c >>> 24) & 255) / 255).toFixed(3) + ")";
+}
+function font(px) { cv.font = FONT.replace("%", px.toFixed(1)); }
+
+function fill(c) { cv.fillStyle = css(c); }
+function stroke(c, w) { cv.strokeStyle = css(c); cv.lineWidth = w; cv.lineCap = "round"; cv.lineJoin = "round"; }
+function rect(l, tt, r, b, c) { fill(c); cv.fillRect(l, tt, r - l, b - tt); }
+function rrect(l, tt, r, b, rad, c) {
+  fill(c); cv.beginPath();
+  if (cv.roundRect) cv.roundRect(l, tt, r - l, b - tt, rad); else cv.rect(l, tt, r - l, b - tt);
+  cv.fill();
+}
+function oval(l, tt, r, b, c) {
+  fill(c); cv.beginPath();
+  cv.ellipse((l + r) / 2, (tt + b) / 2, Math.abs(r - l) / 2, Math.abs(b - tt) / 2, 0, 0, Math.PI * 2);
+  cv.fill();
+}
+function circle(x, y, r, c) { fill(c); cv.beginPath(); cv.arc(x, y, Math.abs(r), 0, Math.PI * 2); cv.fill(); }
+function line(x0, y0, x1, y1, c, w) { stroke(c, w); cv.beginPath(); cv.moveTo(x0, y0); cv.lineTo(x1, y1); cv.stroke(); }
+function glow(x, y, r, c, alpha) {
+  if (r <= 0) return;
+  const g = cv.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, css(withA(c, alpha)));
+  g.addColorStop(1, css(withA(c, 0)));
+  cv.fillStyle = g;
+  cv.beginPath(); cv.arc(x, y, r, 0, Math.PI * 2); cv.fill();
+}
+function poly(pts, c) {
+  fill(c); cv.beginPath(); cv.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) cv.lineTo(pts[i], pts[i + 1]);
+  cv.closePath(); cv.fill();
+}
+function text(s, x, y, size, c, align, shadow) {
+  font(size); cv.textAlign = align || "center"; cv.fillStyle = css(c);
+  if (shadow) { cv.shadowColor = css(shadow[0]); cv.shadowBlur = shadow[1]; cv.shadowOffsetY = shadow[2] || 0; }
+  cv.fillText(s, x, y);
+  cv.shadowBlur = 0; cv.shadowOffsetY = 0; cv.shadowColor = "transparent";
+}
+
+// ---------------------------------------------------------------- input
+
+function inBtn(x, y) { const dx = x - btnX, dy = y - btnY; return dx * dx + dy * dy < btnR * btnR * 1.5; }
+
+function recalcDir() {
+  let d = 0;
+  for (const p of pointers.values()) d = p.x < SW * 0.35 ? -1 : 1;
+  if (keys.l && !keys.r) d = -1;
+  if (keys.r && !keys.l) d = 1;
+  holdDir = d;
+  if (d !== 0 && hintT > 1.5) hintT = 1.5;
+}
+
+cvs.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  if (inBtn(e.clientX, e.clientY)) { smoke(); return; }
+  pointers.set(e.pointerId, { x: e.clientX });
+  try { cvs.setPointerCapture(e.pointerId); } catch (_) {}
+  recalcDir();
+});
+cvs.addEventListener("pointermove", e => {
+  const p = pointers.get(e.pointerId);
+  if (p) { p.x = e.clientX; recalcDir(); }
+});
+const up = e => { pointers.delete(e.pointerId); recalcDir(); };
+cvs.addEventListener("pointerup", up);
+cvs.addEventListener("pointercancel", up);
+cvs.addEventListener("contextmenu", e => e.preventDefault());
+
+window.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (k === "arrowleft" || k === "a" || k === "ф") keys.l = true;
+  else if (k === "arrowright" || k === "d" || k === "в") keys.r = true;
+  else if ((k === " " || k === "s" || k === "ы" || k === "enter") && !e.repeat) smoke();
+  else return;
+  e.preventDefault(); recalcDir();
+});
+window.addEventListener("keyup", e => {
+  const k = e.key.toLowerCase();
+  if (k === "arrowleft" || k === "a" || k === "ф") keys.l = false;
+  if (k === "arrowright" || k === "d" || k === "в") keys.r = false;
+  recalcDir();
+});
+window.addEventListener("blur", () => { keys.l = keys.r = false; pointers.clear(); recalcDir(); });
+
+function smoke() {
+  if (!hasCig) { if (lightT < 0) lightT = 0; }
+  else if (lit && dragT < 0) dragT = 0;
+}
+
+// ---------------------------------------------------------------- update
+
+const wx = lx => px + face * lx * CH;
+const wy = ly => FY + bob + ly * CH;
+
+function lift() {
+  if (lightT >= 0) return smooth(clamp(lightT / 0.3, 0, 1)) * (1 - smooth(clamp((lightT - 1.15) / 0.3, 0, 1)));
+  if (dragT >= 0) return smooth(clamp(dragT / 0.3, 0, 1)) * (1 - smooth(clamp((dragT - 0.9) / 0.3, 0, 1)));
+  return 0;
+}
+
+function addPart(x, y, vx, vy, life, s0, s1, alpha, kind) {
+  parts.push({ x, y, vx, vy, age: 0, life, s0, s1, alpha, kind });
+}
+
+function puff(n) {
+  const mx = wx(0.13), my = wy(-0.89);
+  for (let i = 0; i < n; i++) {
+    addPart(mx, my, face * (0.03 + Math.random() * 0.05), -0.008 - Math.random() * 0.025,
+      2 + Math.random() * 1.8, 0.008, 0.05 + Math.random() * 0.04, 0.32, 0);
+  }
+}
+
+function flick() {
+  hasCig = false; lit = false;
+  addPart(wx(0.13 + 0.08 * cigLen), wy(-0.885), face * 0.35, -0.35, 5, 0.004, 0.004, 1, 1);
+}
+
+function update(dt) {
+  t += dt; hintT -= dt;
+  if (holdDir !== 0) face = holdDir;
+  const moving = holdDir !== 0 && lightT < 0;
+  amp += ((moving ? 1 : 0) - amp) * Math.min(1, dt * 8);
+  if (moving) { px += face * SPEED * dt; meters += SPEED * dt * 5.7; phase += dt * 6.5; }
+  else if (amp < 0.03) phase = 0;
+  bob = -Math.abs(cos(phase)) * 0.012 * amp;
+  camX = px - 0.45 * W / H;
+
+  const dx = px - sx, old = sx;
+  if (Math.abs(dx) > ROPE) sx = px - Math.sign(dx) * ROPE;
+  if (sx !== old) { sFace = sx > old ? 1 : -1; wheelRot += (sx - old) / (0.09 * SC); }
+
+  if (lightT >= 0) {
+    lightT += dt;
+    if (lightT >= 0.3 && !hasCig) { hasCig = true; cigLen = 1; cigs++; }
+    if (lightT >= 1.0 && !lit) { lit = true; emberGlow = 1; }
+    if (lightT > 1.5) { lightT = -1; puff(10); }
+  }
+  if (dragT >= 0) {
+    const prev = dragT;
+    dragT += dt;
+    if (dragT > 0.35 && dragT < 0.95) { emberGlow = 1; cigLen -= dt * 0.25; }
+    if (prev < 1.2 && dragT >= 1.2) puff(16);
+    if (dragT > 1.7) { dragT = -1; if (cigLen < 0.3) flick(); }
+  }
+  emberGlow += (0.35 - emberGlow) * Math.min(1, dt * 2);
+  if (lit) {
+    idleSmoke -= dt;
+    if (idleSmoke < 0) {
+      idleSmoke = 0.1;
+      addPart(wx(0.13 + 0.08 * cigLen), wy(-0.885), (Math.random() - 0.5) * 0.01, -0.035, 2.6, 0.003, 0.02, 0.2, 0);
+    }
+  }
+
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const q = parts[i];
+    q.age += dt;
+    if (q.age > q.life) { parts.splice(i, 1); continue; }
+    if (q.kind === 0) {
+      q.vx = q.vx * (1 - dt * 0.8) - 0.006 * dt;
+      q.vy *= (1 - dt * 0.2);
+      q.x += q.vx * dt + sin(t * 2 + q.life * 10) * 0.004 * dt;
+      q.y += q.vy * dt;
+    } else {
+      q.vy += 1.3 * dt; q.x += q.vx * dt; q.y += q.vy * dt;
+      if (q.y > FY + 0.01) { q.y = FY + 0.01; q.vy *= -0.3; q.vx *= 0.5; }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- draw
+
+function frame(ts) {
+  const dt = last === 0 ? 0.016 : Math.min(0.05, (ts - last) / 1000);
+  last = ts;
+  update(dt);
+
+  cv.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawSky();
+  cv.save();
+  cv.translate(0, OY);
+  drawFar(); drawMalls(); drawBts(); drawRoad(); drawWalk(); drawProps();
+  drawScooter(); drawDude(); drawRope(); drawParts();
+  cv.restore();
+  const v = cv.createRadialGradient(SW / 2, SH / 2, 0, SW / 2, SH / 2, Math.max(SW, SH) * 0.75);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(0.6, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.6)");
+  cv.fillStyle = v; cv.fillRect(0, 0, SW, SH);
+  drawHud();
+  requestAnimationFrame(frame);
+}
+
+function drawSky() {
+  const g = cv.createLinearGradient(0, 0, 0, OY + H * 0.64);
+  g.addColorStop(0, "#07040F"); g.addColorStop(0.55, "#1A0C2E"); g.addColorStop(1, "#52182E");
+  cv.fillStyle = g; cv.fillRect(0, 0, SW, OY + H * 0.66);
+  const my = OY * 0.5 + H * 0.12;
+  glow(W * 0.78, my, H * 0.12, 0xFFFFE6C8, 50);
+  circle(W * 0.78, my, H * 0.03, 0xFFE8DCC8);
+  glow(W * 0.5, OY + H * 0.64, W * 0.6, 0xFFFF6A3A, 40);
+}
+
+function drawFar() {
+  const off = camX * 0.15, slot = 0.16;
+  const i0 = Math.floor(off / slot) - 2, i1 = i0 + Math.floor(W / H / slot) + 4;
+  for (let i = i0; i <= i1; i++) {
+    const x0 = (i * slot - off) * H, w = (0.10 + rnd(i, 1) * 0.07) * H, h = (0.16 + rnd(i, 2) * 0.34) * H;
+    const top = 0.63 * H - h, r3 = rnd(i, 3);
+    fill(0xFF000000 | ((20 + (r3 * 16 | 0)) << 16) | ((16 + (r3 * 10 | 0)) << 8) | (36 + (r3 * 22 | 0)));
+    cv.fillRect(x0, top, w, 0.64 * H - top);
+    let col = 0;
+    for (let cx = x0 + 0.012 * H; cx < x0 + w - 0.012 * H; cx += 0.018 * H, col++) {
+      let row = 0;
+      for (let cy = top + 0.015 * H; cy < 0.61 * H; cy += 0.026 * H, row++) {
+        const r = rnd(i * 131 + col, row);
+        if (r > 0.58) rect(cx, cy, cx + 0.008 * H, cy + 0.012 * H, r > 0.9 ? 0x9996E6FF : 0x99FFD28C);
+      }
+    }
+    if (rnd(i, 4) > 0.7) {
+      const nc = NEON[(rnd(i, 8) * NEON.length) | 0];
+      const a = 120 + ((80 * sin(t * 1.5 + i)) | 0);
+      fill(withA(nc, a));
+      for (let cy = top + 0.01 * H; cy < 0.62 * H; cy += 0.012 * H) {
+        cv.beginPath(); cv.arc(x0 + 0.004 * H, cy, 0.0025 * H, 0, 7); cv.arc(x0 + w - 0.004 * H, cy, 0.0025 * H, 0, 7); cv.fill();
+      }
+      line(x0, top, x0 + w, top, withA(nc, a), 0.004 * H);
+    }
+    if (rnd(i, 5) > 0.6) {
+      line(x0 + w / 2, top, x0 + w / 2, top - 0.05 * H, 0xFF2A2236, 0.004 * H);
+      if (sin(t * 3 + i) > 0) glow(x0 + w / 2, top - 0.05 * H, 0.012 * H, 0xFFFF2020, 230);
+    }
+    if (rnd(i, 6) > 0.72 && sin(t * 7 + i * 3) > -0.95) {
+      const nc = NEON[(rnd(i, 9) * NEON.length) | 0];
+      text(SIGNS[(rnd(i, 7) * SIGNS.length) | 0], x0 + w / 2, top + 0.05 * H, 0.032 * H, nc, "center", [nc, 0.015 * H]);
+    }
+  }
+}
+
+function drawMalls() {
+  const off = camX * 0.32, slot = 0.75;
+  const i0 = Math.floor(off / slot) - 2, i1 = i0 + Math.floor(W / H / slot) + 3;
+  for (let i = i0; i <= i1; i++) {
+    if (rnd(i, 11) < 0.45) continue;
+    const x0 = (i * slot - off) * H, w = (0.35 + rnd(i, 12) * 0.3) * H, h = (0.2 + rnd(i, 13) * 0.2) * H;
+    const top = 0.645 * H - h;
+    rect(x0, top, x0 + w, 0.645 * H, 0xFF12323A);
+    for (let y = top + 0.03 * H; y < 0.64 * H; y += 0.03 * H) line(x0, y, x0 + w, y, 0x4440C0D0, 0.002 * H);
+    for (let x = x0 + 0.05 * H; x < x0 + w; x += 0.05 * H) line(x, top, x, 0.645 * H, 0x2240C0D0, 0.002 * H);
+    line(x0, top, x0 + w, top, 0xCC40F0FF, 0.004 * H);
+    if (rnd(i, 14) > 0.4) {
+      const bw = w * 0.5, bx = x0 + w * 0.25, by = top + 0.04 * H;
+      cv.fillStyle = "hsla(" + mod(t * 25 + i * 60, 360).toFixed(0) + ",80%,55%,0.8)";
+      cv.fillRect(bx, by, bw, 0.08 * H);
+      text(ADS[(rnd(i, 15) * ADS.length) | 0], bx + bw / 2, by + 0.055 * H, 0.035 * H, 0xFFFFFFFF);
+    }
+  }
+}
+
+function drawBts() {
+  const off = camX * 0.55;
+  const hx = mod(t * 0.9, 20) * H - 4 * H;
+  for (let k = 0; k < 4; k++) {
+    const x1 = hx - k * 0.77 * H, x0 = x1 - 0.75 * H;
+    rrect(x0, 0.355 * H, x1, 0.44 * H, 0.02 * H, 0xFFE4E4EA);
+    rect(x0, 0.405 * H, x1, 0.418 * H, 0xFF1E9E4A);
+    rect(x0, 0.418 * H, x1, 0.426 * H, 0xFF1E3A8A);
+    for (let x = x0 + 0.04 * H; x < x1 - 0.08 * H; x += 0.1 * H) rrect(x, 0.37 * H, x + 0.07 * H, 0.398 * H, 0.006 * H, 0xFFFFE9B0);
+  }
+  rect(0, 0.425 * H, W, 0.44 * H, 0xFFA8A8A2);
+  rect(0, 0.44 * H, W, 0.485 * H, 0xFF8E8E8A);
+  rect(0, 0.485 * H, W, 0.5 * H, 0xFF5E5E5C);
+  const j0 = Math.floor(off / 0.8) - 1, j1 = j0 + Math.floor(W / H / 0.8) + 3;
+  for (let j = j0; j <= j1; j++) {
+    const x = (j * 0.8 - off) * H;
+    rect(x - 0.024 * H, 0.5 * H, x + 0.024 * H, 0.645 * H, 0xFF707070);
+    rect(x + 0.008 * H, 0.5 * H, x + 0.024 * H, 0.645 * H, 0xFF5A5A5A);
+    rect(x - 0.04 * H, 0.5 * H, x + 0.04 * H, 0.515 * H, 0xFF666664);
+  }
+}
+
+function drawRoad() {
+  rect(0, 0.64 * H, W, 0.715 * H, 0xFF202024);
+  const j0 = Math.floor(camX / 0.5) - 1, j1 = j0 + Math.floor(W / H / 0.5) + 3;
+  for (let j = j0; j <= j1; j++) {
+    const x = (j * 0.5 - camX) * H;
+    line(x, 0.678 * H, x + 0.25 * H, 0.678 * H, 0x66D8D8D8, 0.004 * H);
+  }
+  const loop = W / H + 3;
+  for (let lane = 0; lane < 2; lane++) {
+    const v = lane === 0 ? -1.3 : 1.0, yb = lane === 0 ? 0.672 : 0.712, s = lane === 0 ? 0.85 : 1;
+    for (let k = 0; k < 3; k++) {
+      const id = lane * 3 + k;
+      const rel = mod(k * loop / 3 + rnd(id, 22) * 0.4 + t * v - camX, loop) - 1.5;
+      cv.save();
+      cv.translate(rel * H, yb * H);
+      cv.scale(Math.sign(v) * H * 0.2 * s, H * 0.2 * s);
+      const type = (rnd(id, 23) * 3) | 0;
+      if (type === 0) tuktuk();
+      else if (type === 1) taxi(rnd(id, 24) > 0.5 ? 0xFFFF4FA0 : 0xFF6CC24A);
+      else moto();
+      cv.restore();
+    }
+  }
+}
+
+function wheel(x, y, r) { circle(x, y, r, 0xFF0E0E10); circle(x, y, r * 0.45, 0xFF6A6A70); }
+
+function tuktuk() {
+  oval(-0.5, -0.03, 0.5, 0.02, 0x44000000);
+  line(-0.42, -0.6, -0.42, -0.3, 0xFF888890, 0.025);
+  line(0.05, -0.6, 0.1, -0.3, 0xFF888890, 0.025);
+  rrect(-0.5, -0.66, 0.15, -0.58, 0.03, 0xFF1C3FA0);
+  for (let x = -0.48; x < 0.14; x += 0.06) line(x, -0.58, x, -0.55, 0xFFFFD23F, 0.012);
+  rrect(-0.5, -0.36, 0.02, -0.08, 0.05, 0xFF1C3FA0);
+  rrect(-0.42, -0.48, -0.08, -0.36, 0.03, 0xFF7A1F24);
+  poly([0, -0.32, 0.32, -0.28, 0.47, -0.1, 0, -0.08], 0xFFD8262E);
+  line(0.12, -0.3, 0.2, -0.55, 0xFF9AC8E0, 0.02);
+  line(-0.48, -0.07, 0.44, -0.07, 0xFFFF2D95, 0.018);
+  wheel(-0.32, -0.07, 0.075); wheel(0.36, -0.07, 0.075);
+  glow(0.46, -0.18, 0.25, 0xFFFFE08A, 140);
+  glow(-0.5, -0.2, 0.08, 0xFFFF2020, 200);
+}
+
+function taxi(color) {
+  oval(-0.55, -0.03, 0.55, 0.02, 0x44000000);
+  poly([-0.5, -0.1, -0.5, -0.28, -0.27, -0.31, -0.14, -0.48, 0.18, -0.48, 0.32, -0.31, 0.5, -0.27, 0.5, -0.1], color);
+  rect(-0.5, -0.2, 0.5, -0.1, 0x33000000);
+  rect(-0.12, -0.45, 0.03, -0.32, 0xFF16223A);
+  poly([0.06, -0.45, 0.17, -0.45, 0.28, -0.32, 0.06, -0.32], 0xFF16223A);
+  rrect(-0.02, -0.55, 0.12, -0.48, 0.01, 0xFFFFE070);
+  wheel(-0.3, -0.08, 0.085); wheel(0.3, -0.08, 0.085);
+  glow(0.5, -0.22, 0.25, 0xFFFFF0C0, 140);
+  glow(-0.5, -0.22, 0.08, 0xFFFF2020, 200);
+}
+
+function moto() {
+  oval(-0.3, -0.03, 0.3, 0.02, 0x44000000);
+  wheel(-0.2, -0.08, 0.08); wheel(0.22, -0.08, 0.08);
+  poly([-0.26, -0.2, 0, -0.24, 0.18, -0.14, 0.22, -0.32, 0.12, -0.34, -0.02, -0.16, -0.24, -0.12], 0xFF2A2A30);
+  line(-0.06, -0.24, -0.02, -0.5, 0xFF15151A, 0.07);
+  line(-0.02, -0.48, 0.15, -0.33, 0xFFFF7A1A, 0.05);
+  rect(-0.1, -0.52, 0.04, -0.3, 0xFFFF7A1A);
+  circle(-0.01, -0.6, 0.07, 0xFFE8E8E8);
+  rect(0.02, -0.62, 0.06, -0.58, 0xFF333344);
+  glow(0.24, -0.3, 0.2, 0xFFFFF0C0, 140);
+  glow(-0.27, -0.2, 0.06, 0xFFFF2020, 200);
+}
+
+function drawWalk() {
+  let j0 = Math.floor(camX / 0.2) - 1, j1 = j0 + Math.floor(W / H / 0.2) + 3;
+  for (let j = j0; j <= j1; j++) {
+    const x = (j * 0.2 - camX) * H;
+    rect(x, 0.715 * H, x + 0.2 * H + 1, 0.735 * H, (j & 1) === 0 ? 0xFFD8A82A : 0xFF2C2C30);
+  }
+  rect(0, 0.715 * H, W, 0.72 * H, 0x33FFFFFF);
+  const g = cv.createLinearGradient(0, 0.735 * H, 0, Math.max(H, H + 1));
+  g.addColorStop(0, "#3C3C44"); g.addColorStop(1, "#1C1C22");
+  cv.fillStyle = g; cv.fillRect(0, 0.735 * H, W, 0.265 * H + 2);
+  j0 = Math.floor(camX / 0.3) - 1; j1 = j0 + Math.floor(W / H / 0.3) + 3;
+  for (let j = j0; j <= j1; j++) {
+    const x = (j * 0.3 - camX) * H;
+    line(x, 0.735 * H, x - 0.06 * H, H, 0x18FFFFFF, 0.003 * H);
+  }
+  line(0, 0.80 * H, W, 0.80 * H, 0x14FFFFFF, 0.003 * H);
+  line(0, 0.88 * H, W, 0.88 * H, 0x14FFFFFF, 0.003 * H);
+
+  j0 = Math.floor(camX / 1.3) - 1; j1 = j0 + Math.floor(W / H / 1.3) + 3;
+  for (let j = j0; j <= j1; j++) {
+    if (rnd(j, 30) < 0.5) continue;
+    const cx = (j * 1.3 + 0.6 - camX) * H, w = (0.12 + rnd(j, 31) * 0.12) * H;
+    oval(cx - w, 0.94 * H, cx + w, 0.975 * H, 0x55080C18);
+    const nc = NEON[(rnd(j, 32) * NEON.length) | 0];
+    cv.save();
+    cv.translate(0, 0.957 * H); cv.scale(1, 0.15); cv.translate(0, -0.957 * H);
+    glow(cx + sin(t * 1.3 + j) * w * 0.2, 0.957 * H, w * 0.8, nc, 70);
+    cv.restore();
+  }
+  j0 = Math.floor(camX / 3) - 1; j1 = j0 + Math.floor(W / H / 3) + 3;
+  for (let j = j0; j <= j1; j++) {
+    if (rnd(j, 33) < 0.5) continue;
+    const x = (j * 3 - camX) * H;
+    line(x, 0.988 * H, x + 2.2 * H, 0.97 * H, 0xFF5AA0B8, 0.014 * H);
+  }
+}
+
+function drawProps() {
+  const j0 = Math.floor(camX / 0.9) - 2, j1 = j0 + Math.floor(W / H / 0.9) + 4;
+  for (let j = j0; j <= j1; j++) {
+    if (rnd(j, 40) > 0.88) continue;
+    const x = (j * 0.9 + 0.2 + rnd(j, 42) * 0.4 - camX) * H;
+    switch ((rnd(j, 41) * 8) | 0) {
+      case 0: lamp(x); break;
+      case 1: trafficLight(x, j); break;
+      case 2: elecBox(x, j); break;
+      case 3: bench(x, j); break;
+      case 4: planter(x, j); break;
+      case 5: palm(x, j); break;
+      case 6: cart(x, j); break;
+      default: dog(x, j); break;
+    }
+  }
+}
+
+function lamp(x) {
+  cv.save();
+  cv.translate(0, 0.86 * H); cv.scale(1, 0.2); cv.translate(0, -0.86 * H);
+  glow(x + 0.08 * H, 0.86 * H, 0.3 * H, 0xFFFFC870, 60);
+  cv.restore();
+  line(x, 0.745 * H, x, 0.2 * H, 0xFF3A3A40, 0.012 * H);
+  line(x, 0.2 * H, x + 0.08 * H, 0.19 * H, 0xFF3A3A40, 0.008 * H);
+  glow(x + 0.08 * H, 0.205 * H, 0.13 * H, 0xFFFFC870, 110);
+  rrect(x + 0.055 * H, 0.19 * H, x + 0.105 * H, 0.205 * H, 0.005 * H, 0xFFFFE6B0);
+}
+
+function trafficLight(x, j) {
+  line(x, 0.745 * H, x, 0.33 * H, 0xFF3A3A40, 0.012 * H);
+  rrect(x - 0.024 * H, 0.19 * H, x + 0.024 * H, 0.34 * H, 0.008 * H, 0xFF18181A);
+  const red = mod(t + j * 3, 12) < 7;
+  circle(x, 0.22 * H, 0.014 * H, red ? 0xFFFF2424 : 0xFF3A1010);
+  circle(x, 0.265 * H, 0.014 * H, 0xFF3A3010);
+  circle(x, 0.31 * H, 0.014 * H, red ? 0xFF0F3A1A : 0xFF20FF6A);
+  if (red) glow(x, 0.22 * H, 0.09 * H, 0xFFFF2424, 140);
+  else glow(x, 0.31 * H, 0.09 * H, 0xFF20FF6A, 140);
+}
+
+function elecBox(x, j) {
+  rect(x - 0.075 * H, 0.565 * H, x + 0.075 * H, 0.745 * H, 0xFFCFCDC6);
+  rect(x - 0.08 * H, 0.555 * H, x + 0.08 * H, 0.57 * H, 0xFFB8B6B0);
+  rect(x - 0.075 * H, 0.725 * H, x + 0.075 * H, 0.745 * H, 0xFF9C9A94);
+  stroke(0xFF2A2A30, 0.004 * H);
+  for (let k = 0; k < 7; k++) {
+    let gx = x + (rnd(j * 7 + k, 50) - 0.5) * 0.12 * H, gy = 0.58 * H + rnd(j * 7 + k, 51) * 0.13 * H;
+    cv.beginPath(); cv.moveTo(gx, gy);
+    for (let m = 0; m < 4; m++) {
+      gx += (rnd(j * 31 + k * 5 + m, 52) - 0.5) * 0.04 * H;
+      gy += (rnd(j * 31 + k * 5 + m, 53) - 0.5) * 0.03 * H;
+      cv.lineTo(clamp(gx, x - 0.07 * H, x + 0.07 * H), clamp(gy, 0.575 * H, 0.72 * H));
+    }
+    cv.stroke();
+  }
+}
+
+function bench(x, j) {
+  rect(x - 0.2 * H, 0.69 * H, x - 0.16 * H, 0.745 * H, 0xFF6A6A66);
+  rect(x + 0.16 * H, 0.69 * H, x + 0.2 * H, 0.745 * H, 0xFF6A6A66);
+  rect(x - 0.24 * H, 0.665 * H, x + 0.24 * H, 0.695 * H, 0xFF8A8A86);
+  if (rnd(j, 55) > 0.3) {
+    line(x - 0.21 * H, 0.65 * H, x - 0.03 * H, 0.652 * H, 0xFF141418, 0.03 * H);
+    line(x - 0.21 * H, 0.642 * H, x - 0.03 * H, 0.644 * H, 0xFFE8D040, 0.003 * H);
+    rrect(x - 0.04 * H, 0.6 * H, x + 0.14 * H, 0.665 * H, 0.025 * H, 0xFFDCE6F0);
+    line(x, 0.61 * H, x + 0.1 * H, 0.655 * H, 0x553C5A80, 0.004 * H);
+    circle(x + 0.165 * H, 0.615 * H, 0.028 * H, 0xFFA0704A);
+    circle(x + 0.172 * H, 0.6 * H, 0.022 * H, 0xFF141012);
+    rrect(x - 0.03 * H, 0.6 * H, x + 0.1 * H, 0.625 * H, 0.012 * H, 0xFFB0B8C0);
+    const a = (200 * (0.5 + 0.5 * sin(t * 1.2 + j))) | 0;
+    text("z z Z", x + 0.2 * H, 0.56 * H - mod(t * 0.02 + j, 0.06) * H, 0.028 * H, withA(0xFFFFFF, a));
+  }
+  for (let k = 0; k < 2; k++) {
+    const bx = x + (0.23 + k * 0.035) * H;
+    rrect(bx, 0.69 * H, bx + 0.022 * H, 0.745 * H, 0.006 * H, k === 0 ? 0x99C8E6FF : 0xCC3A2A20);
+  }
+}
+
+function planter(x, j) {
+  const greens = [0xFF183A22, 0xFF22502E, 0xFF2C5F35];
+  for (let k = 0; k < 6; k++) {
+    circle(x + (-0.17 + k * 0.07) * H, (0.645 - rnd(j * 6 + k, 61) * 0.03) * H, (0.05 + rnd(j * 6 + k, 62) * 0.03) * H,
+      greens[(rnd(j * 6 + k, 60) * 3) | 0]);
+  }
+  rect(x - 0.21 * H, 0.66 * H, x + 0.21 * H, 0.745 * H, 0xFF6E6E6A);
+  rect(x - 0.21 * H, 0.66 * H, x + 0.21 * H, 0.67 * H, 0xFF84847E);
+}
+
+function palm(x, j) {
+  const tx = x + (rnd(j, 70) - 0.3) * 0.12 * H, ty = 0.22 * H;
+  stroke(0xFF4A3A2A, 0.025 * H);
+  cv.beginPath(); cv.moveTo(x, 0.745 * H); cv.quadraticCurveTo(x + 0.01 * H, 0.45 * H, tx, ty); cv.stroke();
+  stroke(0xFF1E3D22, 0.016 * H);
+  for (let k = 0; k < 8; k++) {
+    const a = Math.PI * (k / 7) + sin(t * 0.8 + k + j) * 0.05;
+    const ex = tx + cos(Math.PI + a) * 0.17 * H, ey = ty - sin(a) * 0.05 * H + 0.06 * H;
+    cv.beginPath(); cv.moveTo(tx, ty); cv.quadraticCurveTo((tx + ex) / 2, ty - 0.06 * H, ex, ey); cv.stroke();
+  }
+  circle(tx - 0.01 * H, ty + 0.015 * H, 0.012 * H, 0xFF3A2A12);
+  circle(tx + 0.012 * H, ty + 0.018 * H, 0.012 * H, 0xFF3A2A12);
+}
+
+function cart(x, j) {
+  line(x, 0.53 * H, x, 0.36 * H, 0xFF8A8A90, 0.008 * H);
+  fill(0xFFD02A2A);
+  cv.beginPath(); cv.moveTo(x - 0.17 * H, 0.4 * H); cv.quadraticCurveTo(x, 0.3 * H, x + 0.17 * H, 0.4 * H); cv.closePath(); cv.fill();
+  line(x, 0.35 * H, x - 0.09 * H, 0.385 * H, 0xFFF0F0F0, 0.006 * H);
+  line(x, 0.35 * H, x + 0.09 * H, 0.385 * H, 0xFFF0F0F0, 0.006 * H);
+  rect(x - 0.11 * H, 0.53 * H, x + 0.11 * H, 0.6 * H, 0x88FFE0A0);
+  glow(x, 0.565 * H, 0.12 * H, 0xFFFFC060, 110);
+  rect(x - 0.12 * H, 0.6 * H, x + 0.12 * H, 0.71 * H, 0xFFB8B8C0);
+  rect(x - 0.12 * H, 0.6 * H, x + 0.12 * H, 0.61 * H, 0xFFD8D8E0);
+  text("หมูปิ้ง", x, 0.665 * H, 0.03 * H, 0xFFC81E1E);
+  wheel(x - 0.08 * H, 0.725 * H, 0.02 * H);
+  wheel(x + 0.08 * H, 0.725 * H, 0.02 * H);
+  for (let k = 0; k < 3; k++) {
+    const m = mod(t * 0.4 + k / 3 + j * 0.1, 1);
+    circle(x + sin(m * 5 + k) * 0.02 * H, (0.52 - m * 0.15) * H, (0.015 + m * 0.03) * H, withA(0xDDDDDD, (60 * (1 - m)) | 0));
+  }
+}
+
+function dog(x, j) {
+  oval(x - 0.08 * H, 0.738 * H, x + 0.1 * H, 0.752 * H, 0x55000000);
+  const fur = rnd(j, 80) > 0.5 ? 0xFFB08850 : 0xFF2A241E;
+  oval(x - 0.075 * H, 0.705 * H, x + 0.065 * H, 0.745 * H, fur);
+  circle(x + 0.075 * H, 0.725 * H, 0.022 * H, fur);
+  oval(x + 0.07 * H, 0.725 * H, x + 0.11 * H, 0.742 * H, fur);
+  poly([x + 0.06 * H, 0.712 * H, x + 0.07 * H, 0.69 * H, x + 0.08 * H, 0.708 * H], fur);
+  line(x - 0.07 * H, 0.735 * H, x - 0.1 * H, 0.742 * H + sin(t * 2 + j) * 0.004 * H, fur, 0.01 * H);
+}
+
+function scooterBump() { return -Math.abs(sin(sx * 60)) * 0.004 * H; }
+
+function drawScooter() {
+  cv.save();
+  cv.translate((sx - camX) * H, FY * H + scooterBump());
+  cv.scale(sFace * H * SC, H * SC);
+  oval(-0.55, -0.03, 0.55, 0.04, 0x66000000);
+  wheel(-0.32, -0.09, 0.09); wheel(0.36, -0.09, 0.09);
+  line(-0.32, -0.09, -0.32 + cos(wheelRot) * 0.04, -0.09 + sin(wheelRot) * 0.04, 0xFFAAAAAA, 0.015);
+  line(0.36, -0.09, 0.36 + cos(wheelRot) * 0.04, -0.09 + sin(wheelRot) * 0.04, 0xFFAAAAAA, 0.015);
+  const red = 0xFFE02424, dark = 0xFFB01818;
+  fill(red);
+  cv.beginPath();
+  cv.moveTo(-0.5, -0.18); cv.quadraticCurveTo(-0.54, -0.44, -0.25, -0.46); cv.lineTo(-0.02, -0.42);
+  cv.quadraticCurveTo(0.07, -0.3, 0, -0.14); cv.lineTo(-0.45, -0.14); cv.closePath(); cv.fill();
+  rect(-0.05, -0.21, 0.32, -0.13, dark);
+  fill(red);
+  cv.beginPath();
+  cv.moveTo(0.28, -0.13); cv.lineTo(0.36, -0.58); cv.quadraticCurveTo(0.42, -0.65, 0.47, -0.56);
+  cv.lineTo(0.45, -0.2); cv.quadraticCurveTo(0.43, -0.12, 0.36, -0.12); cv.closePath(); cv.fill();
+  cv.beginPath();
+  cv.moveTo(0.23, -0.1); cv.quadraticCurveTo(0.36, -0.28, 0.49, -0.1); cv.lineTo(0.45, -0.1);
+  cv.quadraticCurveTo(0.36, -0.21, 0.27, -0.1); cv.closePath(); cv.fill();
+  rrect(-0.37, -0.54, -0.06, -0.45, 0.04, dark);
+  line(0.41, -0.6, 0.39, -0.73, dark, 0.04);
+  line(0.3, -0.74, 0.48, -0.74, dark, 0.035);
+  line(0.28, -0.74, 0.32, -0.74, 0xFF111111, 0.04);
+  circle(0.46, -0.66, 0.03, 0xFFFFF4D8);
+  stroke(0x55FFFFFF, 0.02);
+  cv.beginPath(); cv.moveTo(-0.46, -0.3); cv.quadraticCurveTo(-0.42, -0.42, -0.25, -0.43); cv.stroke();
+  cv.restore();
+}
+
+function drawRope() {
+  const ax = (sx - camX) * H + sFace * H * SC * 0.43, ay = FY * H + scooterBump() - H * SC * 0.45;
+  const d = Math.hypot(ax - handX, ay - handY);
+  const sag = Math.max(0.008 * H, (ROPE * H * 1.02 - d) * 0.6);
+  stroke(0xFFEDEDED, 0.0035 * H);
+  cv.beginPath(); cv.moveTo(handX, handY); cv.quadraticCurveTo((handX + ax) / 2, Math.max(handY, ay) + sag, ax, ay); cv.stroke();
+}
+
+function leg(ang) {
+  const hx = 0, hy = -0.47, fx = hx + sin(ang) * 0.44, fy = hy + cos(ang) * 0.44;
+  line(hx, hy, fx, fy, 0xFF141418, 0.085);
+  rrect(fx - 0.04, fy - 0.035, fx + 0.08, fy + 0.012, 0.022, 0xFFF4F4F0);
+  circle(fx + 0.02, fy - 0.015, 0.006, 0xFFCCCCCC);
+  circle(fx + 0.045, fy - 0.015, 0.006, 0xFFCCCCCC);
+}
+
+function bag() {
+  stroke(0xDDE8E8EE, 0.012);
+  cv.beginPath(); cv.moveTo(-0.035, 0.05); cv.quadraticCurveTo(-0.02, -0.02, 0, 0); cv.quadraticCurveTo(0.02, -0.02, 0.035, 0.05); cv.stroke();
+  fill(0xC8E8E8EE);
+  cv.beginPath(); cv.moveTo(-0.05, 0.04); cv.lineTo(0.05, 0.04); cv.lineTo(0.08, 0.2); cv.quadraticCurveTo(0, 0.25, -0.08, 0.2); cv.closePath(); cv.fill();
+  rrect(-0.03, 0.09, 0, 0.21, 0.01, 0x664A90C0);
+  rrect(0.01, 0.13, 0.05, 0.2, 0.01, 0x55C8A040);
+}
+
+function drawDude() {
+  const k = H * CH, a = sin(phase) * 0.45 * amp, L = lift();
+  cv.save();
+  cv.translate((px - camX) * H, FY * H);
+  cv.scale(face * k, k);
+  oval(-0.2, -0.02, 0.22, 0.025, 0x66000000);
+  cv.translate(0, bob / CH);
+
+  const bsx = 0, bsy = -0.79, ba = a * 0.7;
+  const bhx = bsx + sin(ba) * 0.36, bhy = bsy + cos(ba) * 0.36;
+  handX = (px - camX) * H + face * k * bhx;
+  handY = (FY + bob) * H + k * bhy;
+  line(bsx, bsy, bhx, bhy, 0xFFD4A600, 0.07);
+  circle(bhx, bhy, 0.03, 0xFFA87048);
+  cv.save(); cv.translate(bhx, bhy); cv.rotate(-a * 0.5 + sin(t * 2) * 0.03); bag(); cv.restore();
+
+  leg(-a); leg(a);
+
+  rrect(-0.2, -0.84, -0.04, -0.5, 0.045, 0xFF19191D);
+  rrect(-0.19, -0.67, -0.07, -0.53, 0.03, 0xFF26262C);
+  circle(-0.045, -0.71, 0.022, 0xFFF0F0F0);
+
+  rect(-0.075, -0.5, 0.08, -0.44, 0xFF141418);
+  fill(0xFFF2C200);
+  cv.beginPath();
+  cv.moveTo(-0.08, -0.46); cv.lineTo(0.085, -0.46); cv.lineTo(0.12, -0.79); cv.quadraticCurveTo(0.115, -0.86, 0.05, -0.86);
+  cv.lineTo(-0.03, -0.86); cv.quadraticCurveTo(-0.085, -0.86, -0.085, -0.79); cv.closePath(); cv.fill();
+  line(-0.075, -0.47, 0.08, -0.47, 0xFFC89E00, 0.02);
+  line(0, -0.85, 0.07, -0.6, 0xFF19191D, 0.025);
+
+  rect(0.035, -0.9, 0.08, -0.84, 0xFFA87048);
+  circle(0.075, -0.93, 0.072, 0xFFB07850);
+  fill(0xFF151012);
+  cv.beginPath(); cv.moveTo(0.065, -0.945);
+  cv.arc(0.065, -0.945, 0.078, 140 * Math.PI / 180, 345 * Math.PI / 180); cv.closePath(); cv.fill();
+  circle(0.055, -0.925, 0.017, 0xFFA06A44);
+  circle(0.118, -0.935, 0.008, 0xFF1A1010);
+  line(0.12, -0.893, 0.135, -0.895, 0xFF6A3A2A, 0.008);
+
+  if (hasCig) {
+    const ex = 0.13 + 0.08 * cigLen;
+    line(0.13, -0.893, 0.15, -0.89, 0xFFD89A50, 0.017);
+    if (ex > 0.15) line(0.15, -0.89, ex, -0.885, 0xFFF4F4F0, 0.016);
+    if (lit) {
+      glow(ex, -0.885, 0.03 + 0.04 * emberGlow, 0xFFFF6A1A, (230 * emberGlow) | 0);
+      circle(ex, -0.885, 0.01, 0xFF000000 | (255 << 16) | (((60 + 120 * emberGlow) | 0) << 8) | 30);
+    } else {
+      circle(ex, -0.885, 0.008, 0xFF888888);
+    }
+  }
+
+  const fsx = 0.04, fsy = -0.79, fa = -a * 0.7;
+  const ex0 = fsx + sin(fa) * 0.18, ey0 = fsy + cos(fa) * 0.18;
+  const hx0 = fsx + sin(fa) * 0.36, hy0 = fsy + cos(fa) * 0.36;
+  const elx = lerp(ex0, 0.17, L), ely = lerp(ey0, -0.62, L);
+  const hx = lerp(hx0, 0.135, L), hy = lerp(hy0, -0.87, L);
+  stroke(0xFFF2C200, 0.07);
+  cv.beginPath(); cv.moveTo(fsx, fsy); cv.lineTo(elx, ely); cv.lineTo(hx, hy); cv.stroke();
+  circle(hx, hy, 0.03, 0xFFB07850);
+  if (lightT > 0.4 && lightT < 1.05) {
+    const fl = 1 + sin(t * 40) * 0.15;
+    rrect(hx - 0.012, hy - 0.01, hx + 0.02, hy + 0.04, 0.006, 0xFF2A6AE0);
+    glow(hx + 0.004, hy - 0.03, 0.07 * fl, 0xFFFFB040, 200);
+    oval(hx - 0.006, hy - 0.06 * fl, hx + 0.014, hy - 0.01, 0xFFFFE070);
+  }
+  cv.restore();
+}
+
+function drawParts() {
+  for (const q of parts) {
+    const k = q.age / q.life, x = (q.x - camX) * H, y = q.y * H;
+    if (q.kind === 0) {
+      const r = lerp(q.s0, q.s1, Math.sqrt(k)) * H;
+      const a = (255 * q.alpha * (1 - k) * Math.min(1, q.age * 6)) | 0;
+      circle(x, y, r, withA(0xC8C8D2, a));
+    } else {
+      line(x - 0.008 * H, y, x + 0.008 * H, y, 0xFFF0F0F0, 0.006 * H);
+      if (k < 0.6) glow(x + 0.008 * H, y, 0.012 * H, 0xFFFF5A1A, (220 * (1 - k / 0.6)) | 0);
+    }
+  }
+}
+
+function drawHud() {
+  const sh = [0xFF000000, 0.006 * H, 0.003 * H];
+  const m = 23 * 60 + 47 + ((t / 6) | 0);
+  const clock = String(((m / 60) | 0) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  const hs = Math.max(H, Math.min(SW, SH) * 0.6);
+  text("Бангкок · Сукхумвит · " + clock, 0.05 * hs, 0.08 * hs, 0.04 * hs, 0xFFFFFFFF, "left", sh);
+  text("Пройдено: " + (meters | 0) + " м", 0.05 * hs, 0.13 * hs, 0.032 * hs, 0xFFDDDDDD, "left", sh);
+  text("Скурено: " + cigs, 0.05 * hs, 0.175 * hs, 0.032 * hs, 0xFFDDDDDD, "left", sh);
+
+  const busy = lightT >= 0 || dragT >= 0 || (hasCig && !lit);
+  circle(btnX, btnY, btnR, busy ? 0x55000000 : 0x99000000);
+  stroke(busy ? 0x66FF8A2A : 0xFFFF8A2A, 0.006 * H);
+  cv.beginPath(); cv.arc(btnX, btnY, btnR, 0, Math.PI * 2); cv.stroke();
+  text("🚬", btnX, btnY + 0.015 * H, 0.075 * H, 0xFFFFFFFF);
+  text(hasCig ? "ЗАТЯЖКА" : "ПОКУРИТЬ", btnX, btnY + 0.07 * H, 0.026 * H, busy ? 0x88FFB070 : 0xFFFFB070);
+
+  if (hintT > 0) {
+    const a = (255 * Math.min(1, hintT)) | 0;
+    const touch = matchMedia("(pointer: coarse)").matches;
+    const hint = touch ? "держи справа — идёшь, слева — назад" : "← → или A/D — идти, пробел — курить";
+    text(hint, SW / 2, OY + H * 0.3, 0.036 * H, withA(0xFFFFFF, a), "center", [withA(0xFF000000, a), 0.006 * H, 0.003 * H]);
+  }
+  if (SH > SW * 1.2) {
+    text("переверни телефон — так пиздаче", SW / 2, OY * 0.5 + 0.02 * SH, 0.045 * SW, 0xAAFFFFFF, "center", sh);
+  }
+}
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
