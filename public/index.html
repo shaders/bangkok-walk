@@ -22,9 +22,11 @@ const SKY_SIGNS = ["BANGKOK", "SIAM", "กรุงเทพ", "MBK", "ช้า
 const SHOP_SIGNS = ["ร้านอาหาร", "ก๋วยเตี๋ยว", "โรงแรม", "ร้านยา", "NOODLE", "PHARMACY", "HOSTEL", "TATTOO", "ทองคำ", "EXCHANGE", "SIM CARD", "ข้าวมันไก่"];
 const VSIGNS = ["酒吧", "按摩", "旅馆", "金店", "饭店", "บาร์", "นวด"];
 const FACADE = [0xFF3A4A48, 0xFF5A4044, 0xFF5C5444, 0xFF44474E, 0xFF4E3E30, 0xFF3E4C38, 0xFF4A3A52];
-const NAGS = ["Бля, чувак, нажми уже, идти", "Ну чё встал? Зажимай", "Музыка щас сдохнет, жми", "Я так до утра стоять буду?", "Зажми экран, ёпта"];
-const WOWS = ["ебать...", "во дают", "красиво", "ну нихуя себе", "я бы тоже так смог", "щас бы туда", "ха, лох", "кино"];
-const LIFTS = ["ну ёб твою мать", "щас подниму", "ну чё ты, малая", "вставай, родная"];
+const NAGS = [["กดสิวะ ไอ้เหี้ย!", "жми уже, ящерица ебаная"], ["ยืนทำห่าอะไร กดดิ", "хули встал, жми"], ["เพลงจะตายแล้ว แม่ง!", "музыка сдыхает, блядь"],
+  ["กูจะยืนถึงเช้าเหรอวะ", "мне до утра тут стоять?"], ["กดจอสิ สัส", "жми экран, скотина"]];
+const WOWS = [["เชี่ย...", "ебать..."], ["โคตรเจ๋ง", "охуенно"], ["เหี้ย ดูดิ", "бля, зырь"], ["แม่งเอ้ย", "ну нихуя"],
+  ["กูก็ทำได้", "я тоже так могу"], ["อยากไปด้วยว่ะ", "хочу туда"], ["ควาย 555", "дебил, ахаха"], ["หนังชัดๆ", "прям кино"]];
+const LIFTS = [["ชิบหาย...", "пиздец..."], ["เย็ดแม่ ล้มอีกแล้ว", "ёб твою мать, опять"], ["ลุกสิที่รัก", "вставай, родная"], ["ไอ้เหี้ย สกู๊ตเตอร์", "ебучий скутер"]];
 const FONT = "bold %px -apple-system, 'Segoe UI', Roboto, 'Noto Sans Thai', sans-serif";
 const DEBUG = location.search.indexOf("debug") >= 0;
 
@@ -111,14 +113,18 @@ function text(s, x, y, size, c, align, shadow) {
 }
 function bubble(x, y, s, size, alpha) {
   if (alpha <= 0) return;
+  let sub = null;
+  if (Array.isArray(s)) { sub = s[1]; s = s[0]; }
   font(size);
-  const w = cv.measureText(s).width + size * 1.2, h = size * 1.7;
+  let w = cv.measureText(s).width + size * 1.2, h = size * 1.7;
+  if (sub) { font(size * 0.6); w = Math.max(w, cv.measureText(sub).width + size * 1.2); h += size * 0.8; }
   const bx = clamp(x - w / 2, 4, SW - w - 4);
   const by = y - h - size * 0.6;
   cv.globalAlpha = clamp01(alpha);
   rrect(bx, by, bx + w, by + h, size * 0.6, 0xF2FFFFFF);
   poly([x - size * 0.4, by + h - 1, x + size * 0.4, by + h - 1, x, y], 0xF2FFFFFF);
-  text(s, bx + w / 2, by + h * 0.68, size, 0xFF111111);
+  text(s, bx + w / 2, by + size * 1.16, size, 0xFF111111);
+  if (sub) text(sub, bx + w / 2, by + size * 2.05, size * 0.6, 0xFF777777);
   cv.globalAlpha = 1;
 }
 
@@ -309,14 +315,14 @@ function crossingBlock(holding) {
     if (isRed(c) && t > jayUntil) {
       blocked = true;
       if (px > stopX) px = stopX;
-      if (!crossSaid.has(c)) { crossSaid.add(c); say("красный, стоим", 2); redHold = 0; }
+      if (!crossSaid.has(c)) { crossSaid.add(c); say(["ไฟแดง รอแม่ง", "красный, ждём, блядь"], 2); redHold = 0; }
       if (holding) redHold += lastDt;
       if (redHold > 3.5) {
         crossDone.add(c); redHold = 0; jayUntil = t + 2.5; blocked = false;
-        sfxHonk(); say("да похуй, бегом!", 2);
+        sfxHonk(); say(["ช่างแม่ง วิ่ง!", "да похуй, бегом!"], 2);
       }
     } else if (crossSaid.has(c) && t > jayUntil) {
-      crossDone.add(c); redHold = 0; say("зелёный, погнали", 1.5);
+      crossDone.add(c); redHold = 0; say(["ไฟเขียว ไปโว้ย", "зелёный, погнали"], 1.5);
     }
   }
   return blocked;
@@ -358,7 +364,7 @@ function update(dt) {
       const xs = stepX(s);
       if (validStep(s) && !stepHit.has(s) && old < xs && sx >= xs && !scooterDown) {
         stepHit.add(s); scooterDown = true; downSince = t;
-        sfxClunk(); setTimeout(() => say("бля, веспа!", 1.8), 350);
+        sfxClunk(); setTimeout(() => say(["เชี่ย! เวสป้า!", "бля, веспа!"], 1.8), 350);
       }
     }
     if (scooterDown && liftT < 0) {
@@ -450,7 +456,7 @@ function update(dt) {
         hasBeer = false; opened = false; beers++;
         bottles.push(px + 0.05);
         if (bottles.length > 40) bottles.shift();
-        if (Math.random() < 0.6) setTimeout(() => { sfxBurp(); say("ыыгх", 1.5); }, 500);
+        if (Math.random() < 0.6) setTimeout(() => { sfxBurp(); say(["เอิ๊ก", "*рыг*"], 1.5); }, 500);
       }
     }
   }
@@ -820,8 +826,8 @@ function evCops(cx, j, lt) {
   figure(cx + tX * U, G, S, tP, -1, 0xFFD8B898, { shirt: 0xFF1A1A1A, bag: 0xFFC8A030 });
   figure(cx + cX * U, G, S, cP, cF, 0xFFD8B898, { shirt: 0xFF3A4A6A, hat: "cop", baton: true });
   cv.globalAlpha = 1;
-  if (c > 0.4 && c < 2.2) bubble(cx + cX * U, G - S * 1.2, "หยุด! Стоять!", 0.026 * H, 1);
-  if (c > 4 && c < 6) bubble(cx + tX * U, G - S * 0.6, "ай бля, всё, всё!", 0.026 * H, 1);
+  if (c > 0.4 && c < 2.2) bubble(cx + cX * U, G - S * 1.2, ["หยุด! ไอ้สัส!", "стоять, сука!"], 0.026 * H, 1);
+  if (c > 4 && c < 6) bubble(cx + tX * U, G - S * 0.6, ["โอ๊ย เหี้ย! พอ!", "ай бля, хватит!"], 0.026 * H, 1);
 }
 
 function evTuktuk(cx, j, lt) {
