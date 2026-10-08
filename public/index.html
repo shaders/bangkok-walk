@@ -16,36 +16,42 @@
 <script>
 "use strict";
 const FY = 0.92, CH = 0.30, SPEED = 0.2, ROPE = 0.30, SC = 0.13;
-const SIGNS = ["BANGKOK", "SIAM", "7-ELEVEN", "กรุงเทพ", "MBK", "SOI 11", "NANA", "ช้าง", "LEO", "MASSAGE", "ICONSIAM", "SINGHA"];
+const G2 = 0.625, FS = 0.15, FAC = 0.8, SLOT = 1.4, CROSS = 14, STEPGAP = 21;
 const NEON = [0xFFFF2D95, 0xFF00E5FF, 0xFFB44CFF, 0xFFFFD23F, 0xFF39FF88, 0xFFFF5A36];
-const ADS = ["SALE 70%", "MAMA", "SINGHA", "PAD THAI", "LEO BEER", "K-POP"];
+const SKY_SIGNS = ["BANGKOK", "SIAM", "กรุงเทพ", "MBK", "ช้าง", "LEO", "ICONSIAM", "SINGHA"];
+const SHOP_SIGNS = ["ร้านอาหาร", "ก๋วยเตี๋ยว", "โรงแรม", "ร้านยา", "NOODLE", "PHARMACY", "HOSTEL", "TATTOO", "ทองคำ", "EXCHANGE", "SIM CARD", "ข้าวมันไก่"];
+const VSIGNS = ["酒吧", "按摩", "旅馆", "金店", "饭店", "บาร์", "นวด"];
+const FACADE = [0xFF3A4A48, 0xFF5A4044, 0xFF5C5444, 0xFF44474E, 0xFF4E3E30, 0xFF3E4C38, 0xFF4A3A52];
+const NAGS = ["Бля, чувак, нажми уже, идти", "Ну чё встал? Зажимай", "Музыка щас сдохнет, жми", "Я так до утра стоять буду?", "Зажми экран, ёпта"];
+const WOWS = ["ебать...", "во дают", "красиво", "ну нихуя себе", "я бы тоже так смог", "щас бы туда", "ха, лох", "кино"];
+const LIFTS = ["ну ёб твою мать", "щас подниму", "ну чё ты, малая", "вставай, родная"];
 const FONT = "bold %px -apple-system, 'Segoe UI', Roboto, 'Noto Sans Thai', sans-serif";
-
 const DEBUG = location.search.indexOf("debug") >= 0;
+
 const cvs = document.getElementById("c");
 const cv = cvs.getContext("2d");
-let SW, SH, W, H, OY, dpr;
+let SW, SH, W, H, OY, dpr, dudeFrac;
 
 let t = 0, last = 0;
-let px = 0, camX = 0, phase = 0, amp = 0, bob = 0, face = 1, holdDir = 0;
+let px = 0, camX = 0, phase = 0, amp = 0, bob = 0, speed = 0, drive = 0, everHeld = false, elevD = 0;
 let sx = -ROPE, wheelRot = 0, sFace = 1, handX = 0, handY = 0;
-let hasCig = false, lit = false, cigLen = 0, emberGlow = 0.35, lightT = -1, dragT = -1, idleSmoke = 0;
-let cigs = 0, meters = 0, hintT = 8;
-let btnX, btnY, btnR;
-const parts = [];
-const keys = { l: false, r: false };
-const pointers = new Map();
+let scooterDown = false, sRot = 0, downSince = 0, liftT = -1, sparkT = 0, scrapeT = 0;
+let hasCig = false, lit = false, cigLen = 0, emberGlow = 0.35, lightT = -1, dragT = -1, idleSmoke = 0, nextDragAt = 0;
+let hasBeer = false, opened = false, beerLevel = 0, openT = -1, sipT = -1, nextSipAt = 0;
+let cigs = 0, beers = 0, meters = 0, drunk = 0;
+let stopUntil = 0, nextActionAt = 1e9, redHold = 0, jayUntil = 0;
+let bubbleText = "", bubbleUntil = 0;
+const parts = [], bottles = [], watched = new Set(), stepHit = new Set(), crossDone = new Set(), crossSaid = new Set();
+const pointers = new Set(), keysDown = new Set();
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   SW = window.innerWidth; SH = window.innerHeight;
   cvs.width = Math.round(SW * dpr); cvs.height = Math.round(SH * dpr);
   W = SW;
-  H = Math.min(SH, SW / 1.3);
+  H = Math.min(SH, SW);
   OY = SH - H;
-  btnR = H * 0.11;
-  btnX = SW - H * 0.17;
-  btnY = SH - H * 0.17;
+  dudeFrac = SW / H < 1.3 ? 0.42 : 0.38;
 }
 window.addEventListener("resize", resize);
 resize();
@@ -60,14 +66,15 @@ function rnd(i, salt) {
 const mod = (a, m) => { const r = a % m; return r < 0 ? r + m : r; };
 const lerp = (a, b, k) => a + (b - a) * k;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-const smooth = k => k * k * (3 - 2 * k);
-const sin = Math.sin, cos = Math.cos;
-const withA = (c, a) => ((c & 0xFFFFFF) | (a << 24)) >>> 0;
+const clamp01 = v => clamp(v, 0, 1);
+const smooth = k => { k = clamp01(k); return k * k * (3 - 2 * k); };
+const sin = Math.sin, cos = Math.cos, PI = Math.PI;
+const withA = (c, a) => ((c & 0xFFFFFF) | (clamp(a | 0, 0, 255) << 24)) >>> 0;
+const pick = (arr, r) => arr[Math.min(arr.length - 1, (r * arr.length) | 0)];
 function css(c) {
   return "rgba(" + ((c >>> 16) & 255) + "," + ((c >>> 8) & 255) + "," + (c & 255) + "," + (((c >>> 24) & 255) / 255).toFixed(3) + ")";
 }
 function font(px) { cv.font = FONT.replace("%", px.toFixed(1)); }
-
 function fill(c) { cv.fillStyle = css(c); }
 function stroke(c, w) { cv.strokeStyle = css(c); cv.lineWidth = w; cv.lineCap = "round"; cv.lineJoin = "round"; }
 function rect(l, tt, r, b, c) { fill(c); cv.fillRect(l, tt, r - l, b - tt); }
@@ -78,18 +85,18 @@ function rrect(l, tt, r, b, rad, c) {
 }
 function oval(l, tt, r, b, c) {
   fill(c); cv.beginPath();
-  cv.ellipse((l + r) / 2, (tt + b) / 2, Math.abs(r - l) / 2, Math.abs(b - tt) / 2, 0, 0, Math.PI * 2);
+  cv.ellipse((l + r) / 2, (tt + b) / 2, Math.abs(r - l) / 2, Math.abs(b - tt) / 2, 0, 0, PI * 2);
   cv.fill();
 }
-function circle(x, y, r, c) { fill(c); cv.beginPath(); cv.arc(x, y, Math.abs(r), 0, Math.PI * 2); cv.fill(); }
+function circle(x, y, r, c) { fill(c); cv.beginPath(); cv.arc(x, y, Math.abs(r), 0, PI * 2); cv.fill(); }
 function line(x0, y0, x1, y1, c, w) { stroke(c, w); cv.beginPath(); cv.moveTo(x0, y0); cv.lineTo(x1, y1); cv.stroke(); }
 function glow(x, y, r, c, alpha) {
-  if (r <= 0) return;
+  if (r <= 0 || alpha <= 0) return;
   const g = cv.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, css(withA(c, alpha)));
   g.addColorStop(1, css(withA(c, 0)));
   cv.fillStyle = g;
-  cv.beginPath(); cv.arc(x, y, r, 0, Math.PI * 2); cv.fill();
+  cv.beginPath(); cv.arc(x, y, r, 0, PI * 2); cv.fill();
 }
 function poly(pts, c) {
   fill(c); cv.beginPath(); cv.moveTo(pts[0], pts[1]);
@@ -102,113 +109,296 @@ function text(s, x, y, size, c, align, shadow) {
   cv.fillText(s, x, y);
   cv.shadowBlur = 0; cv.shadowOffsetY = 0; cv.shadowColor = "transparent";
 }
+function bubble(x, y, s, size, alpha) {
+  if (alpha <= 0) return;
+  font(size);
+  const w = cv.measureText(s).width + size * 1.2, h = size * 1.7;
+  const bx = clamp(x - w / 2, 4, SW - w - 4);
+  const by = y - h - size * 0.6;
+  cv.globalAlpha = clamp01(alpha);
+  rrect(bx, by, bx + w, by + h, size * 0.6, 0xF2FFFFFF);
+  poly([x - size * 0.4, by + h - 1, x + size * 0.4, by + h - 1, x, y], 0xF2FFFFFF);
+  text(s, bx + w / 2, by + h * 0.68, size, 0xFF111111);
+  cv.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- world layout
+
+function crossX(c) { return c * CROSS + 7 + rnd(c, 172) * 3; }
+function isRed(c) { return mod(t + rnd(c, 170) * 12, 12) < 7; }
+function lightLeft(c) { const p = mod(t + rnd(c, 170) * 12, 12); return p < 7 ? 7 - p : 12 - p; }
+function nearCross(x, pad) { const c = Math.round((x - 8.5) / CROSS); return Math.abs(x - crossX(c)) < pad; }
+function stepX(s) { return s * STEPGAP + 12 + rnd(s, 173) * 5; }
+function validStep(s) { return !nearCross(stepX(s), 1.5) && !nearCross(stepX(s) + 0.5, 1.5); }
+function onStep(x) {
+  const s = Math.floor((x - 12) / STEPGAP);
+  for (const k of [s - 1, s, s + 1]) { const xs = stepX(k); if (validStep(k) && x >= xs && x <= xs + 0.5) return true; }
+  return false;
+}
+
+// ---------------------------------------------------------------- stickmen
+
+// pose: [lean, thighA, kneeA, thighB, kneeB, armA, elbowA, armB, elbowB, crouch, fallBack, headTilt]
+const STAND = [0, -0.05, 0.05, 0.05, 0.05, -0.1, 0.2, 0.1, 0.2, 0, 0, 0];
+const PUNCH = [0.25, -0.45, 0.35, 0.35, 0.3, 0.5, 2.0, 1.57, 0, 0.06, 0, 0];
+const KICK = [-0.35, -0.1, 0.1, 1.75, 0, 0.9, 1.0, 1.4, 0.4, 0, 0, 0];
+const FLY = [-0.15, -0.6, 1.6, 1.45, 0, 1.6, 0.4, -0.6, 0.8, -0.28, 0, 0];
+const HIT = [-0.5, 0.4, 0.6, 0.2, 0.2, 1.4, 0.4, 1.8, 0.3, 0, 0, 0];
+const LIE = [0, 0.1, 0, -0.1, 0, 2.6, 0.2, 2.2, 0.4, 0, 1.5, 0];
+const BOW = [0.9, 0, 0, 0, 0, 0.3, 0, 0.3, 0, 0, 0, 0.3];
+const SIT = [0, 1.57, 1.57, 1.5, 1.5, 0.9, 0.6, 1.1, 0.5, 0.25, 0, 0];
+const DRINK = [-0.15, -0.05, 0.05, 0.05, 0.05, 0.1, 0.3, 2.3, 2.5, 0, 0, -0.35];
+
+function lerpP(a, b, k) { const r = new Array(12); for (let i = 0; i < 12; i++) r[i] = lerp(a[i], b[i], k); return r; }
+function walkP(ph, run) {
+  const s = sin(ph), m = run ? 1.8 : 1;
+  return [run ? 0.3 : 0.05, 0.4 * s * m, 0.15 + 0.4 * m * Math.max(0, sin(ph + 1.6)), -0.4 * s * m, 0.15 + 0.4 * m * Math.max(0, sin(ph + 1.6 + PI)),
+    -0.4 * s * m, run ? 1.4 : 0.3, 0.4 * s * m, run ? 1.4 : 0.3, -Math.abs(cos(ph)) * 0.02, 0, 0];
+}
+function fightP(ph) { return [0.12, -0.35, 0.45, 0.3, 0.35, 0.7, 1.9, 1.1, 1.5, 0.05 + 0.015 * sin(ph * 7), 0, 0]; }
+function danceP(ph, style) {
+  const s = sin(ph), c = cos(ph);
+  if (style === 0) return [0.1 * s, 0.15 * s, 0.2, -0.15 * s, 0.2, 2.7 + 0.35 * s, 0.3, 2.7 - 0.35 * s, 0.3, 0.03 * (1 + sin(ph * 2)), 0, 0.15 * s];
+  if (style === 1) {
+    const up = sin(ph * 0.5) > 0;
+    return [0.05, 0.25 * s, 0.2, -0.1, 0.1, up ? 2.6 : 0.5, 0.1, up ? 0.3 : 2.6, 0.1, 0.02, 0, 0.1 * c];
+  }
+  if (style === 2) return [0.2 * s, 0.5, 0.9 + 0.3 * s, -0.2, 0.9 - 0.3 * s, 1.2 + 0.6 * s, 1.5, 1.2 - 0.6 * s, 1.5, 0.12 + 0.05 * s, 0, 0];
+  return [0.1 * c, 0.3 * s, 0.4, -0.3 * s, 0.4, 1.6 + 0.8 * c, 0.4, 1.6 - 0.8 * c, 0.4, 0.04 * Math.abs(s), 0, 0.2 * c];
+}
+function cheerP(ph) { return [0, -0.05, 0.1, 0.05, 0.1, 2.8 + 0.2 * sin(ph * 2), 0.2, 2.8 - 0.2 * sin(ph * 2), 0.2, -0.04 * Math.abs(sin(ph * 2)), 0, -0.2]; }
+function waveP(ph) { return [0, -0.05, 0.05, 0.05, 0.05, 0.2, 0.3, 2.6, 0.4 + 0.5 * sin(ph * 8), 0, 0, 0]; }
+function singP(ph) { return [0.1 * sin(ph), -0.1, 0.1, 0.1, 0.1, 1.6 + 0.5 * sin(ph * 1.3), 0.3, 1.0, 2.3, 0, 0, -0.15]; }
+function batonP(ph) { return [0.3, -0.4, 0.3, 0.3, 0.3, 0.3, 0.5, 1.9 + 1.0 * cos(ph), 0.3, 0.04, 0, 0.2]; }
+
+function figure(x, y, s, P, f, col, ex) {
+  ex = ex || {};
+  cv.save();
+  cv.translate(x, y);
+  cv.scale(f * s, s);
+  if (P[10]) cv.rotate(-P[10]);
+  const lw = 0.065;
+  const hx = 0, hy = -0.5 + P[9];
+  stroke(col, lw);
+  for (const [tt, kk] of [[P[1], P[2]], [P[3], P[4]]]) {
+    const kx = hx + sin(tt) * 0.26, ky = hy + cos(tt) * 0.26;
+    const fx = kx + sin(tt - kk) * 0.26, fy = ky + cos(tt - kk) * 0.26;
+    cv.beginPath(); cv.moveTo(hx, hy); cv.lineTo(kx, ky); cv.lineTo(fx, fy); cv.stroke();
+  }
+  const nx = hx + sin(P[0]) * 0.3, ny = hy - cos(P[0]) * 0.3;
+  if (ex.bag) rrect(nx - 0.13 * cos(P[0]) - 0.04, ny + 0.02, nx - 0.02, ny + 0.2, 0.03, ex.bag);
+  if (ex.robe) {
+    stroke(ex.robe, 0.16);
+    cv.beginPath(); cv.moveTo(hx, hy + 0.12); cv.lineTo(nx, ny + 0.03); cv.stroke();
+  } else if (ex.shirt) {
+    stroke(ex.shirt, 0.12);
+    cv.beginPath(); cv.moveTo(hx, hy); cv.lineTo(nx, ny + 0.04); cv.stroke();
+  } else {
+    stroke(col, lw);
+    cv.beginPath(); cv.moveTo(hx, hy); cv.lineTo(nx, ny); cv.stroke();
+  }
+  if (ex.skirt) poly([hx - 0.05, hy - 0.04, hx + 0.05, hy - 0.04, hx + 0.12, hy + 0.13, hx - 0.12, hy + 0.13], ex.skirt);
+  const hands = [];
+  for (const [a, e] of [[P[5], P[6]], [P[7], P[8]]]) {
+    const ex1 = nx + sin(a) * 0.17, ey1 = ny + cos(a) * 0.17;
+    const hx2 = ex1 + sin(a + e) * 0.17, hy2 = ey1 + cos(a + e) * 0.17;
+    stroke(ex.shirt && !ex.robe ? ex.shirt : col, lw);
+    cv.beginPath(); cv.moveTo(nx, ny); cv.lineTo(ex1, ey1); cv.lineTo(hx2, hy2); cv.stroke();
+    hands.push([hx2, hy2, a + e]);
+  }
+  const hcX = nx + sin(P[0] + P[11]) * 0.1, hcY = ny - cos(P[0] + P[11]) * 0.1;
+  circle(hcX, hcY, 0.075, col);
+  if (ex.hat === "cop") { rect(hcX - 0.08, hcY - 0.09, hcX + 0.08, hcY - 0.04, 0xFF20304A); rect(hcX - 0.02, hcY - 0.06, hcX + 0.11, hcY - 0.04, 0xFF20304A); }
+  if (ex.hat === "sun") oval(hcX - 0.14, hcY - 0.08, hcX + 0.14, hcY - 0.03, 0xFFE8D8A0);
+  if (ex.hair) { fill(ex.hair); cv.beginPath(); cv.arc(hcX, hcY, 0.08, PI * 0.9, PI * 2.1); cv.fill(); line(hcX - 0.06, hcY, hcX - 0.09, hcY + 0.14, ex.hair, 0.05); }
+  const [rx, ry, ra] = hands[1];
+  if (ex.bottle) {
+    cv.save(); cv.translate(rx, ry); cv.rotate(-ra + PI);
+    rrect(-0.025, -0.06, 0.025, 0.07, 0.01, 0xE01B6B32); rect(-0.009, -0.12, 0.009, -0.06, 0xE01B6B32);
+    cv.restore();
+  }
+  if (ex.mic) { line(rx, ry, rx + sin(ra) * 0.08, ry + cos(ra) * 0.08, 0xFF333333, 0.03); circle(rx + sin(ra) * 0.1, ry + cos(ra) * 0.1, 0.03, 0xFF888888); }
+  if (ex.baton) line(rx, ry, rx + sin(ra) * 0.26, ry + cos(ra) * 0.26, 0xFF111111, 0.035);
+  if (ex.selfie) {
+    const sx2 = rx + sin(ra) * 0.45, sy2 = ry + cos(ra) * 0.45;
+    line(rx, ry, sx2, sy2, 0xFF999999, 0.015);
+    rrect(sx2 - 0.04, sy2 - 0.06, sx2 + 0.04, sy2 + 0.06, 0.01, 0xFF222222);
+    glow(sx2, sy2, 0.12, 0xFFFFFFFF, 120);
+  }
+  if (ex.bowl) oval(hands[0][0] - 0.05, hands[0][1] - 0.03, hands[0][0] + 0.05, hands[0][1] + 0.03, 0xFF2A2A2A);
+  cv.restore();
+}
 
 // ---------------------------------------------------------------- input
 
 function muteBtn() {
-  const hs = Math.max(H, Math.min(SW, SH) * 0.6);
-  return { x: SW - 0.08 * hs, y: 0.075 * hs, r: 0.045 * hs };
+  const hs = Math.min(SW, SH);
+  return { x: SW - 0.08 * hs, y: 0.08 * hs, r: 0.05 * hs };
 }
-
-function inMute(x, y) {
-  const b = muteBtn(), dx = x - b.x, dy = y - b.y;
-  return dx * dx + dy * dy < b.r * b.r * 2;
-}
-
-function inBtn(x, y) { const dx = x - btnX, dy = y - btnY; return dx * dx + dy * dy < btnR * btnR * 1.5; }
-
-function recalcDir() {
-  let d = 0;
-  for (const p of pointers.values()) d = p.x < SW * 0.35 ? -1 : 1;
-  if (keys.l && !keys.r) d = -1;
-  if (keys.r && !keys.l) d = 1;
-  holdDir = d;
-  if (d !== 0 && hintT > 1.5) hintT = 1.5;
-}
+function inMute(x, y) { const b = muteBtn(), dx = x - b.x, dy = y - b.y; return dx * dx + dy * dy < b.r * b.r * 2; }
+function isHolding() { return pointers.size > 0 || keysDown.size > 0; }
 
 cvs.addEventListener("pointerdown", e => {
   e.preventDefault();
   if (inMute(e.clientX, e.clientY)) { toggleMute(); return; }
   initAudio();
-  if (inBtn(e.clientX, e.clientY)) { smoke(); return; }
-  pointers.set(e.pointerId, { x: e.clientX });
+  pointers.add(e.pointerId);
   try { cvs.setPointerCapture(e.pointerId); } catch (_) {}
-  recalcDir();
 });
-cvs.addEventListener("pointermove", e => {
-  const p = pointers.get(e.pointerId);
-  if (p) { p.x = e.clientX; recalcDir(); }
-});
-const up = e => { pointers.delete(e.pointerId); recalcDir(); };
+const up = e => pointers.delete(e.pointerId);
 cvs.addEventListener("pointerup", up);
 cvs.addEventListener("pointercancel", up);
 cvs.addEventListener("contextmenu", e => e.preventDefault());
-
 window.addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
-  if ((k === "m" || k === "ь") && !e.repeat) { toggleMute(); return; }
+  if (k === "m" || k === "ь") { if (!e.repeat) toggleMute(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
   initAudio();
-  if (k === "arrowleft" || k === "a" || k === "ф") keys.l = true;
-  else if (k === "arrowright" || k === "d" || k === "в") keys.r = true;
-  else if ((k === " " || k === "s" || k === "ы" || k === "enter") && !e.repeat) smoke();
-  else return;
-  e.preventDefault(); recalcDir();
+  keysDown.add(k);
+  e.preventDefault();
 });
-window.addEventListener("keyup", e => {
-  const k = e.key.toLowerCase();
-  if (k === "arrowleft" || k === "a" || k === "ф") keys.l = false;
-  if (k === "arrowright" || k === "d" || k === "в") keys.r = false;
-  recalcDir();
-});
-window.addEventListener("blur", () => { keys.l = keys.r = false; pointers.clear(); recalcDir(); });
+window.addEventListener("keyup", e => keysDown.delete(e.key.toLowerCase()));
+window.addEventListener("blur", () => { keysDown.clear(); pointers.clear(); });
 
-function smoke() {
-  if (!hasCig) { if (lightT < 0) lightT = 0; }
-  else if (lit && dragT < 0) dragT = 0;
-}
+// ---------------------------------------------------------------- dude logic
 
-// ---------------------------------------------------------------- update
-
-const wx = lx => px + face * lx * CH;
+const wx = lx => px + lx * CH;
 const wy = ly => FY + bob + ly * CH;
+const curve = (x, upDur, downAt, downDur) => smooth(x / upDur) * (1 - smooth((x - downAt) / downDur));
 
 function lift() {
-  if (lightT >= 0) return smooth(clamp(lightT / 0.3, 0, 1)) * (1 - smooth(clamp((lightT - 1.15) / 0.3, 0, 1)));
-  if (dragT >= 0) return smooth(clamp(dragT / 0.3, 0, 1)) * (1 - smooth(clamp((dragT - 0.9) / 0.3, 0, 1)));
+  if (lightT >= 0) return curve(lightT, 0.3, 1.15, 0.3);
+  if (sipT >= 0) return curve(sipT, 0.35, 1.3, 0.35);
+  if (dragT >= 0 && !hasBeer) return curve(dragT, 0.3, 0.9, 0.3);
   return 0;
 }
 
-function addPart(x, y, vx, vy, life, s0, s1, alpha, kind) {
-  parts.push({ x, y, vx, vy, age: 0, life, s0, s1, alpha, kind });
+function addPart(x, y, vx, vy, life, s0, s1, alpha, kind, col) {
+  parts.push({ x, y, vx, vy, age: 0, life, s0, s1, alpha, kind, col: col || 0xC8C8D2 });
 }
 
 function puff(n) {
   sfxExhale(n > 12);
   const mx = wx(0.13), my = wy(-0.89);
   for (let i = 0; i < n; i++) {
-    addPart(mx, my, face * (0.03 + Math.random() * 0.05), -0.008 - Math.random() * 0.025,
+    addPart(mx, my, 0.03 + Math.random() * 0.05, -0.008 - Math.random() * 0.025,
       2 + Math.random() * 1.8, 0.008, 0.05 + Math.random() * 0.04, 0.32, 0);
   }
 }
 
+function say(s, dur) { bubbleText = s; bubbleUntil = t + dur; }
+
+function startSmoke() { lightT = 0; stopUntil = Math.max(stopUntil, t + 2.2); nextDragAt = t + 4.5; }
+function startBeer() { openT = 0; hasBeer = true; opened = false; beerLevel = 1; stopUntil = Math.max(stopUntil, t + 2.4); nextSipAt = t + 1.5; }
+
 function flick() {
   hasCig = false; lit = false;
-  addPart(wx(0.13 + 0.08 * cigLen), wy(-0.885), face * 0.35, -0.35, 5, 0.004, 0.004, 1, 1);
+  addPart(wx(0.13 + 0.08 * cigLen), wy(-0.885), 0.35, -0.35, 5, 0.004, 0.004, 1, 1);
 }
 
+function eventX(j) { return (j * SLOT + SLOT / 2 - camX * FAC) * H; }
+
+function crossingBlock(holding) {
+  let blocked = false;
+  const ci = Math.floor((px - 7) / CROSS);
+  for (const c of [ci, ci + 1]) {
+    if (crossDone.has(c)) continue;
+    const stopX = crossX(c) - 0.5;
+    if (px > stopX + 0.01) { crossDone.add(c); continue; }
+    if (px < stopX - 0.45) continue;
+    if (isRed(c) && t > jayUntil) {
+      blocked = true;
+      if (px > stopX) px = stopX;
+      if (!crossSaid.has(c)) { crossSaid.add(c); say("красный, стоим", 2); redHold = 0; }
+      if (holding) redHold += lastDt;
+      if (redHold > 3.5) {
+        crossDone.add(c); redHold = 0; jayUntil = t + 2.5; blocked = false;
+        sfxHonk(); say("да похуй, бегом!", 2);
+      }
+    } else if (crossSaid.has(c) && t > jayUntil) {
+      crossDone.add(c); redHold = 0; say("зелёный, погнали", 1.5);
+    }
+  }
+  return blocked;
+}
+
+let lastDt = 0.016;
 function update(dt) {
-  t += dt; hintT -= dt;
-  if (holdDir !== 0) face = holdDir;
-  const moving = holdDir !== 0 && lightT < 0;
-  amp += ((moving ? 1 : 0) - amp) * Math.min(1, dt * 8);
-  if (moving) { px += face * SPEED * dt; meters += SPEED * dt * 5.7; phase += dt * 6.5; }
-  else if (amp < 0.03) phase = 0;
-  bob = -Math.abs(cos(phase)) * 0.012 * amp;
-  camX = px - 0.45 * W / H;
+  lastDt = dt;
+  t += dt;
+  const holding = isHolding();
+  if (holding) {
+    if (!everHeld) { everHeld = true; nextActionAt = t + 7; }
+    drive = 1;
+  } else {
+    drive = Math.max(0, drive - dt / 3.5);
+  }
+  const blocked = crossingBlock(holding);
+  let target = t < stopUntil || blocked ? 0 : drive;
+  if (t < jayUntil) target = 1.9 * drive;
+  speed += (target - speed) * Math.min(1, dt * (target < speed && (t < stopUntil || blocked) ? 5 : 3));
+  if (speed < 0.002) speed = 0;
+  const v = SPEED * speed;
+  px += v * dt;
+  meters += v * dt * 5.7;
+  phase += dt * 6.5 * Math.min(1.6, speed * 1.4);
+  amp += (Math.min(1, speed * 1.6) - amp) * Math.min(1, dt * 6);
+  if (amp < 0.02) phase = lerp(phase, Math.round(phase / PI) * PI, Math.min(1, dt * 4));
+  elevD += ((onStep(px) ? -0.02 : 0) - elevD) * Math.min(1, dt * 12);
+  bob = -Math.abs(cos(phase)) * 0.012 * amp + elevD;
+  camX = px - dudeFrac * W / H;
 
   const dx = px - sx, old = sx;
   if (Math.abs(dx) > ROPE) sx = px - Math.sign(dx) * ROPE;
-  if (sx !== old) { sFace = sx > old ? 1 : -1; wheelRot += (sx - old) / (0.09 * SC); }
+  if (sx !== old) {
+    sFace = sx > old ? 1 : -1;
+    if (!scooterDown) wheelRot += (sx - old) / (0.09 * SC);
+    const s0 = Math.floor((sx - 12) / STEPGAP);
+    for (const s of [s0, s0 + 1]) {
+      const xs = stepX(s);
+      if (validStep(s) && !stepHit.has(s) && old < xs && sx >= xs && !scooterDown) {
+        stepHit.add(s); scooterDown = true; downSince = t;
+        sfxClunk(); setTimeout(() => say("бля, веспа!", 1.8), 350);
+      }
+    }
+    if (scooterDown && liftT < 0) {
+      sparkT -= dt; scrapeT -= dt;
+      if (sparkT < 0) {
+        sparkT = 0.04;
+        addPart(sx - 0.05 + Math.random() * 0.04, FY - 0.005, -(0.05 + Math.random() * 0.2), -0.15 - Math.random() * 0.25, 0.35, 0, 0, 1, 3);
+      }
+      if (scrapeT < 0) { scrapeT = 0.22; sfxScrape(); }
+    }
+  }
+  if (scooterDown && liftT < 0 && t - downSince > 1.2 && (speed < 0.05 || t - downSince > 9)) {
+    liftT = 0; stopUntil = Math.max(stopUntil, t + 2.4); say(pick(LIFTS, Math.random()), 2);
+  }
+  if (liftT >= 0) { liftT += dt; if (liftT > 2.0) { liftT = -1; scooterDown = false; } }
+  const sTarget = scooterDown ? (liftT >= 0 ? 1 - smooth((liftT - 0.6) / 1.0) : 1) : 0;
+  sRot += (sTarget - sRot) * Math.min(1, dt * 9);
+
+  if (holding && t > stopUntil && !blocked) {
+    const dX = (px - camX) * H;
+    const j0 = Math.floor((camX * FAC) / SLOT) - 1;
+    for (let j = j0; j < j0 + 6; j++) {
+      if (watched.has(j) || eventType(j) < 0) continue;
+      const rel = eventX(j) - dX;
+      if (rel > 0.05 * H && rel < 0.3 * H) {
+        watched.add(j);
+        if (Math.random() < 0.8) {
+          stopUntil = t + 4.5 + Math.random() * 2.5;
+          setTimeout(() => say(pick(WOWS, Math.random()), 2.5), 1200);
+          if (!hasCig && !hasBeer && Math.random() < 0.35) Math.random() < 0.5 ? startSmoke() : startBeer();
+        }
+        break;
+      }
+    }
+  }
+  if (holding && t > nextActionAt && t > stopUntil) {
+    if (!hasCig && lightT < 0 && (hasBeer || Math.random() < 0.55)) startSmoke();
+    else if (!hasBeer) startBeer();
+    nextActionAt = t + 14 + Math.random() * 14;
+  }
 
   if (lightT >= 0) {
     if (lightT < 0.4 && lightT + dt >= 0.4) sfxLighter();
@@ -217,12 +407,17 @@ function update(dt) {
     if (lightT >= 1.0 && !lit) { lit = true; emberGlow = 1; }
     if (lightT > 1.5) { lightT = -1; puff(10); }
   }
+  if (lit && dragT < 0 && sipT < 0 && t > nextDragAt) { dragT = 0; nextDragAt = t + 3.5 + Math.random() * 3; }
   if (dragT >= 0) {
     const prev = dragT;
     dragT += dt;
-    if (dragT > 0.35 && dragT < 0.95) { emberGlow = 1; cigLen -= dt * 0.25; }
+    if (dragT > 0.35 && dragT < 0.95) { emberGlow = 1; cigLen -= dt * 0.15; }
     if (prev < 1.2 && dragT >= 1.2) puff(16);
-    if (dragT > 1.7) { dragT = -1; if (cigLen < 0.3) flick(); }
+    if (dragT > 1.7) dragT = -1;
+  }
+  if (lit) {
+    cigLen -= dt * 0.02;
+    if (cigLen < 0.22 && dragT < 0) flick();
   }
   emberGlow += (0.35 - emberGlow) * Math.min(1, dt * 2);
   if (lit) {
@@ -232,6 +427,34 @@ function update(dt) {
       addPart(wx(0.13 + 0.08 * cigLen), wy(-0.885), (Math.random() - 0.5) * 0.01, -0.035, 2.6, 0.003, 0.02, 0.2, 0);
     }
   }
+
+  if (openT >= 0) {
+    const prev = openT;
+    openT += dt;
+    if (prev < 0.7 && openT >= 0.7) {
+      opened = true;
+      sfxOpen();
+      for (let i = 0; i < 8; i++) addPart(wx(0.08), wy(-0.58), (Math.random() - 0.5) * 0.04, -0.03 - Math.random() * 0.03, 0.6, 0.004, 0.01, 0.8, 0, 0xFFFFF4D8);
+    }
+    if (openT > 1.3) openT = -1;
+  }
+  if (hasBeer && opened && sipT < 0 && dragT < 0 && openT < 0 && t > nextSipAt) { sipT = 0; nextSipAt = t + 4 + Math.random() * 4; }
+  if (sipT >= 0) {
+    const prev = sipT;
+    sipT += dt;
+    for (const g of [0.55, 0.85, 1.15]) if (prev < g && sipT >= g) sfxGlug();
+    if (sipT > 0.35 && sipT < 1.3) { beerLevel -= dt * 0.2; drunk += dt * 0.16; }
+    if (sipT > 1.7) {
+      sipT = -1;
+      if (beerLevel <= 0.05) {
+        hasBeer = false; opened = false; beers++;
+        bottles.push(px + 0.05);
+        if (bottles.length > 40) bottles.shift();
+        if (Math.random() < 0.6) setTimeout(() => { sfxBurp(); say("ыыгх", 1.5); }, 500);
+      }
+    }
+  }
+  drunk = Math.max(0, drunk - dt * 0.012);
 
   for (let i = parts.length - 1; i >= 0; i--) {
     const q = parts[i];
@@ -244,12 +467,14 @@ function update(dt) {
       q.y += q.vy * dt;
     } else {
       q.vy += 1.3 * dt; q.x += q.vx * dt; q.y += q.vy * dt;
-      if (q.y > FY + 0.01) { q.y = FY + 0.01; q.vy *= -0.3; q.vx *= 0.5; }
+      if (q.kind === 1 && q.y > FY + 0.01) { q.y = FY + 0.01; q.vy *= -0.3; q.vx *= 0.5; }
     }
   }
+
+  updateMusic(holding);
 }
 
-// ---------------------------------------------------------------- draw
+// ---------------------------------------------------------------- frame
 
 function frame(ts) {
   const dt = last === 0 ? 0.016 : Math.min(0.05, (ts - last) / 1000);
@@ -260,103 +485,428 @@ function frame(ts) {
   drawSky();
   cv.save();
   cv.translate(0, OY);
-  drawFar(); drawMalls(); drawBts(); drawRoad(); drawWalk(); drawProps();
-  drawScooter(); drawDude(); drawRope(); drawParts();
+  const dz = Math.min(drunk, 3);
+  if (dz > 0.05) {
+    cv.translate(W / 2, H * 0.9);
+    cv.rotate(sin(t * 0.55) * 0.014 * dz);
+    cv.translate(-W / 2 + sin(t * 0.8) * 0.01 * H * dz, -H * 0.9);
+  }
+  drawSkyline();
+  drawFacades();
+  drawEvents();
+  drawRoad();
+  drawWalk();
+  drawCrossings();
+  drawSteps();
+  drawPoles();
+  drawProps();
+  drawBottles();
+  drawScooter();
+  drawDude();
+  drawRope();
+  drawParts();
+  drawDudeBubble();
   cv.restore();
   const v = cv.createRadialGradient(SW / 2, SH / 2, 0, SW / 2, SH / 2, Math.max(SW, SH) * 0.75);
-  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(0.6, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.6)");
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(0.6, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.55)");
   cv.fillStyle = v; cv.fillRect(0, 0, SW, SH);
   drawHud();
   requestAnimationFrame(frame);
 }
 
 function drawSky() {
-  const g = cv.createLinearGradient(0, 0, 0, OY + H * 0.64);
-  g.addColorStop(0, "#07040F"); g.addColorStop(0.55, "#1A0C2E"); g.addColorStop(1, "#52182E");
-  cv.fillStyle = g; cv.fillRect(0, 0, SW, OY + H * 0.66);
-  const my = OY * 0.5 + H * 0.12;
-  glow(W * 0.78, my, H * 0.12, 0xFFFFE6C8, 50);
-  circle(W * 0.78, my, H * 0.03, 0xFFE8DCC8);
-  glow(W * 0.5, OY + H * 0.64, W * 0.6, 0xFFFF6A3A, 40);
+  const g = cv.createLinearGradient(0, 0, 0, OY + H * 0.5);
+  g.addColorStop(0, "#07040F"); g.addColorStop(0.6, "#1A0C2E"); g.addColorStop(1, "#52182E");
+  cv.fillStyle = g; cv.fillRect(0, 0, SW, OY + H * 0.62);
+  glow(W * 0.8, H * 0.08, H * 0.1, 0xFFFFE6C8, 45);
+  circle(W * 0.8, H * 0.08, H * 0.025, 0xFFE8DCC8);
 }
 
-function drawFar() {
-  const off = camX * 0.15, slot = 0.16;
+function drawSkyline() {
+  const off = camX * 0.15, slot = 0.16, top0 = -OY / H;
   const i0 = Math.floor(off / slot) - 2, i1 = i0 + Math.floor(W / H / slot) + 4;
   for (let i = i0; i <= i1; i++) {
-    const x0 = (i * slot - off) * H, w = (0.10 + rnd(i, 1) * 0.07) * H, h = (0.16 + rnd(i, 2) * 0.34) * H;
-    const top = 0.63 * H - h, r3 = rnd(i, 3);
+    const x0 = (i * slot - off) * H, w = (0.10 + rnd(i, 1) * 0.07) * H;
+    const h = (0.2 + rnd(i, 2) * (0.4 - top0 * 0.8)) * H;
+    const top = 0.5 * H - h, r3 = rnd(i, 3);
     fill(0xFF000000 | ((20 + (r3 * 16 | 0)) << 16) | ((16 + (r3 * 10 | 0)) << 8) | (36 + (r3 * 22 | 0)));
-    cv.fillRect(x0, top, w, 0.64 * H - top);
+    cv.fillRect(x0, top, w, 0.5 * H - top);
     let col = 0;
     for (let cx = x0 + 0.012 * H; cx < x0 + w - 0.012 * H; cx += 0.018 * H, col++) {
       let row = 0;
-      for (let cy = top + 0.015 * H; cy < 0.61 * H; cy += 0.026 * H, row++) {
+      for (let cy = top + 0.015 * H; cy < 0.48 * H; cy += 0.026 * H, row++) {
         const r = rnd(i * 131 + col, row);
-        if (r > 0.58) rect(cx, cy, cx + 0.008 * H, cy + 0.012 * H, r > 0.9 ? 0x9996E6FF : 0x99FFD28C);
+        if (r > 0.6) rect(cx, cy, cx + 0.008 * H, cy + 0.012 * H, r > 0.9 ? 0x8896E6FF : 0x88FFD28C);
       }
     }
-    if (rnd(i, 4) > 0.7) {
-      const nc = NEON[(rnd(i, 8) * NEON.length) | 0];
-      const a = 120 + ((80 * sin(t * 1.5 + i)) | 0);
-      fill(withA(nc, a));
-      for (let cy = top + 0.01 * H; cy < 0.62 * H; cy += 0.012 * H) {
-        cv.beginPath(); cv.arc(x0 + 0.004 * H, cy, 0.0025 * H, 0, 7); cv.arc(x0 + w - 0.004 * H, cy, 0.0025 * H, 0, 7); cv.fill();
-      }
-      line(x0, top, x0 + w, top, withA(nc, a), 0.004 * H);
-    }
-    if (rnd(i, 5) > 0.6) {
-      line(x0 + w / 2, top, x0 + w / 2, top - 0.05 * H, 0xFF2A2236, 0.004 * H);
-      if (sin(t * 3 + i) > 0) glow(x0 + w / 2, top - 0.05 * H, 0.012 * H, 0xFFFF2020, 230);
-    }
-    if (rnd(i, 6) > 0.72 && sin(t * 7 + i * 3) > -0.95) {
-      const nc = NEON[(rnd(i, 9) * NEON.length) | 0];
-      text(SIGNS[(rnd(i, 7) * SIGNS.length) | 0], x0 + w / 2, top + 0.05 * H, 0.032 * H, nc, "center", [nc, 0.015 * H]);
+    if (rnd(i, 4) > 0.7) line(x0, top, x0 + w, top, withA(pick(NEON, rnd(i, 8)), 150 + 80 * sin(t * 1.5 + i)), 0.004 * H);
+    if (rnd(i, 5) > 0.6 && sin(t * 3 + i) > 0) glow(x0 + w / 2, top - 0.01 * H, 0.012 * H, 0xFFFF2020, 230);
+    if (rnd(i, 6) > 0.75) {
+      const nc = pick(NEON, rnd(i, 9));
+      text(pick(SKY_SIGNS, rnd(i, 7)), x0 + w / 2, top + 0.04 * H, 0.028 * H, nc, "center", [nc, 0.012 * H]);
     }
   }
 }
 
-function drawMalls() {
-  const off = camX * 0.32, slot = 0.75;
-  const i0 = Math.floor(off / slot) - 2, i1 = i0 + Math.floor(W / H / slot) + 3;
+// ---------------------------------------------------------------- facades
+
+function drawFacades() {
+  const topLimit = -OY / H - 0.1, off = camX * FAC, slot = 0.6;
+  const i0 = Math.floor(off / slot) - 1, i1 = i0 + Math.floor(W / H / slot) + 3;
   for (let i = i0; i <= i1; i++) {
-    if (rnd(i, 11) < 0.45) continue;
-    const x0 = (i * slot - off) * H, w = (0.35 + rnd(i, 12) * 0.3) * H, h = (0.2 + rnd(i, 13) * 0.2) * H;
-    const top = 0.645 * H - h;
-    rect(x0, top, x0 + w, 0.645 * H, 0xFF12323A);
-    for (let y = top + 0.03 * H; y < 0.64 * H; y += 0.03 * H) line(x0, y, x0 + w, y, 0x4440C0D0, 0.002 * H);
-    for (let x = x0 + 0.05 * H; x < x0 + w; x += 0.05 * H) line(x, top, x, 0.645 * H, 0x2240C0D0, 0.002 * H);
-    line(x0, top, x0 + w, top, 0xCC40F0FF, 0.004 * H);
-    if (rnd(i, 14) > 0.4) {
-      const bw = w * 0.5, bx = x0 + w * 0.25, by = top + 0.04 * H;
-      cv.fillStyle = "hsla(" + mod(t * 25 + i * 60, 360).toFixed(0) + ",80%,55%,0.8)";
-      cv.fillRect(bx, by, bw, 0.08 * H);
-      text(ADS[(rnd(i, 15) * ADS.length) | 0], bx + bw / 2, by + 0.055 * H, 0.035 * H, 0xFFFFFFFF);
+    const x0 = (i * slot - off) * H, w = slot * H;
+    const tower = rnd(i, 91) > 0.82;
+    const floors = tower ? 8 + ((rnd(i, 92) * 9) | 0) : 2 + ((rnd(i, 93) * 5) | 0);
+    const fh = 0.16, base = 0.45;
+    const topY = base - fh * floors;
+    const bw = tower ? w * 0.85 : w;
+    const bx = tower ? x0 + w * 0.075 : x0;
+    const col = pick(FACADE, rnd(i, 94));
+    rect(bx, topY * H, bx + bw, 0.6 * H, col);
+    rect(bx, topY * H, bx + 0.012 * H, 0.6 * H, 0x33000000);
+    rect(bx + bw - 0.012 * H, topY * H, bx + bw, 0.6 * H, 0x22FFFFFF);
+    if (!tower && rnd(i, 95) > 0.7 && topY > topLimit) rooftop(bx, bw, topY, i);
+    for (let k = 1; k <= floors; k++) {
+      const fy = base - fh * k;
+      if ((fy + fh) < topLimit) continue;
+      line(bx, (fy + fh) * H, bx + bw, (fy + fh) * H, 0x33000000, 0.006 * H);
+      const nwin = Math.max(2, Math.floor(bw / H / 0.15));
+      for (let n = 0; n < nwin; n++) floorWindow(bx + (n + 0.5) * bw / nwin, fy, i * 31 + k * 7 + n);
+      if (rnd(i * 13 + k, 96) > 0.62) balcony(bx, bw, fy, i * 13 + k);
     }
+    if (rnd(i, 97) > 0.6) {
+      const nc = pick(NEON, rnd(i, 98)), vx = bx + bw - 0.05 * H;
+      const vy0 = (base - fh * Math.min(floors, 2)) * H + 0.02 * H, vy1 = base * H - 0.01 * H;
+      rect(vx, vy0, vx + 0.04 * H, vy1, 0xDD100810);
+      stroke(withA(nc, 200 + 55 * sin(t * 4 + i)), 0.003 * H);
+      cv.strokeRect(vx, vy0, 0.04 * H, vy1 - vy0);
+      const ch = pick(VSIGNS, rnd(i, 99));
+      for (let c = 0; c < ch.length; c++) text(ch[c], vx + 0.02 * H, vy0 + (c + 1) * 0.045 * H, 0.032 * H, nc, "center", [nc, 0.01 * H]);
+    }
+    groundFloor(bx, bw, i);
   }
 }
 
-function drawBts() {
-  const off = camX * 0.55;
-  const hx = mod(t * 0.9, 20) * H - 4 * H;
-  for (let k = 0; k < 4; k++) {
-    const x1 = hx - k * 0.77 * H, x0 = x1 - 0.75 * H;
-    rrect(x0, 0.355 * H, x1, 0.44 * H, 0.02 * H, 0xFFE4E4EA);
-    rect(x0, 0.405 * H, x1, 0.418 * H, 0xFF1E9E4A);
-    rect(x0, 0.418 * H, x1, 0.426 * H, 0xFF1E3A8A);
-    for (let x = x0 + 0.04 * H; x < x1 - 0.08 * H; x += 0.1 * H) rrect(x, 0.37 * H, x + 0.07 * H, 0.398 * H, 0.006 * H, 0xFFFFE9B0);
+function groundFloor(bx, bw, i) {
+  const top = 0.45 * H, bot = 0.6 * H, open = rnd(i, 100) > 0.4;
+  rect(bx + 0.01 * H, top + 0.04 * H, bx + bw - 0.01 * H, bot, open ? 0xFF2A2018 : 0xFF181818);
+  if (open) {
+    glow(bx + bw / 2, top + 0.1 * H, bw * 0.6, 0xFFFFC070, 70);
+    for (let k = 0; k < 4; k++) rect(bx + bw * (0.15 + k * 0.2), top + 0.11 * H, bx + bw * (0.25 + k * 0.2), top + 0.13 * H, 0x55D8C8A0);
+  } else {
+    for (let y = top + 0.05 * H; y < top + 0.1 * H; y += 0.008 * H) line(bx + 0.015 * H, y, bx + bw - 0.015 * H, y, 0x33AAAAAA, 0.002 * H);
   }
-  rect(0, 0.425 * H, W, 0.44 * H, 0xFFA8A8A2);
-  rect(0, 0.44 * H, W, 0.485 * H, 0xFF8E8E8A);
-  rect(0, 0.485 * H, W, 0.5 * H, 0xFF5E5E5C);
-  const j0 = Math.floor(off / 0.8) - 1, j1 = j0 + Math.floor(W / H / 0.8) + 3;
+  const sc = pick([0xFFC81E1E, 0xFF1E5AC8, 0xFFE0A020, 0xFF1E9E4A, 0xFFE8E8E8], rnd(i, 101));
+  rect(bx + 0.005 * H, top, bx + bw - 0.005 * H, top + 0.04 * H, sc);
+  text(pick(SHOP_SIGNS, rnd(i, 102)), bx + bw / 2, top + 0.03 * H, 0.024 * H, sc === 0xFFE8E8E8 || sc === 0xFFE0A020 ? 0xFF201010 : 0xFFFFFFFF);
+  rect(bx, bot, bx + bw, 0.64 * H, 0xFF4A4A50);
+  line(bx, 0.64 * H, bx + bw, 0.64 * H, 0xFF6A6A70, 0.004 * H);
+}
+
+function floorWindow(cx, fy, id) {
+  const ww = 0.075 * H, wh = 0.085 * H, x0 = cx - ww / 2, y0 = (fy + 0.035) * H;
+  const r = rnd(id, 110);
+  if (r < 0.45) { rect(x0, y0, x0 + ww, y0 + wh, 0xFF141820); return; }
+  const tv = r > 0.88;
+  const lc = tv ? (sin(t * 9 + id) > 0.3 ? 0xFF6A9AE8 : 0xFF4A70C0) : (rnd(id, 111) > 0.3 ? 0xFFE8B868 : 0xFFE88A9A);
+  rect(x0, y0, x0 + ww, y0 + wh, lc);
+  glow(cx, y0 + wh / 2, ww * 1.1, lc, 50);
+  const act = rnd(id, 112);
+  if (act > 0.45 && !tv) {
+    cv.save();
+    cv.beginPath(); cv.rect(x0, y0, ww, wh); cv.clip();
+    const lt = t + rnd(id, 113) * 20, sil = 0xEE1A1014, s = wh * 0.95, gy = y0 + wh * 1.02;
+    if (act < 0.62) figure(cx, gy, s, danceP(lt * 5, ((rnd(id, 114) * 4) | 0)), 1, sil);
+    else if (act < 0.76) {
+      const yell = sin(lt * 2.2) > 0;
+      figure(cx - ww * 0.25, gy, s, yell ? waveP(lt) : STAND, 1, sil);
+      figure(cx + ww * 0.25, gy, s, yell ? STAND : waveP(lt + 1), -1, sil);
+    } else if (act < 0.88) figure(cx, gy, s, sin(lt) > 0.3 ? DRINK : STAND, 1, sil, { bottle: true });
+    else figure(cx, gy, s, lerpP(STAND, SIT, 0.5 + 0.5 * sin(lt * 3)), 1, sil);
+    cv.restore();
+  }
+  line(x0, y0 + wh / 2, x0 + ww, y0 + wh / 2, 0x55000000, 0.003 * H);
+  line(cx, y0, cx, y0 + wh, 0x55000000, 0.003 * H);
+}
+
+function balcony(bx, bw, fy, id) {
+  const y = (fy + 0.16) * H, rl = y - 0.04 * H, x0 = bx + 0.02 * H, x1 = bx + bw - 0.02 * H;
+  if (rnd(id, 120) > 0.5) {
+    stroke(0xFF2A2A2A, 0.002 * H);
+    cv.beginPath(); cv.moveTo(x0, y - 0.11 * H); cv.quadraticCurveTo((x0 + x1) / 2, y - 0.09 * H, x1, y - 0.11 * H); cv.stroke();
+    for (let k = 0; k < 4; k++) {
+      const cx = lerp(x0, x1, 0.2 + k * 0.2), c = pick([0xFFC83030, 0xFFE8E8E8, 0xFF3060C8, 0xFFE8C030], rnd(id * 5 + k, 121));
+      rect(cx - 0.012 * H, y - 0.105 * H, cx + 0.012 * H, y - 0.075 * H + sin(t * 2 + k) * 0.002 * H, c);
+    }
+  }
+  if (rnd(id, 122) > 0.55) rect(x1 - 0.06 * H, y - 0.075 * H, x1 - 0.01 * H, y - 0.04 * H, 0xFFB0B0A8);
+  if (rnd(id, 123) > 0.6) {
+    const lt = t + rnd(id, 124) * 30, smoker = rnd(id, 125) > 0.5, cx = lerp(x0, x1, 0.35);
+    figure(cx, y, 0.11 * H, smoker ? [0.1, 0, 0, 0, 0, 0.6, 1.0, sin(lt * 0.7) > 0.6 ? 2.3 : 1.2, 1.4, 0, 0, 0] : [0, 0.1, 0.1, -0.1, 0.1, 0.9, 1.5, 1.0, 1.5, 0, 0, 0.1 * sin(lt * 3)], 1, 0xFFD8D0C8);
+    if (smoker) {
+      glow(cx + 0.025 * H, y - 0.085 * H, 0.008 * H, 0xFFFF6A1A, 200);
+      for (let k = 0; k < 3; k++) {
+        const m = mod(lt * 0.3 + k / 3, 1);
+        circle(cx + 0.025 * H + sin(m * 6) * 0.01 * H, y - (0.09 + m * 0.08) * H, (0.005 + m * 0.015) * H, withA(0xC8C8D2, 70 * (1 - m)));
+      }
+    } else {
+      rrect(cx + 0.005 * H, y - 0.07 * H, cx + 0.045 * H, y - 0.05 * H, 0.008 * H, 0xFF8A5A30);
+      if (mod(lt, 3) < 1.5) text("♪", cx + 0.03 * H, y - 0.13 * H - mod(lt, 1.5) * 0.03 * H, 0.025 * H, 0xCCFFFFFF);
+    }
+  }
+  rect(x0 - 0.01 * H, rl, x1 + 0.01 * H, rl + 0.006 * H, 0xFF2A2A30);
+  for (let x = x0; x <= x1; x += 0.02 * H) line(x, rl, x, y, 0xFF2A2A30, 0.003 * H);
+  rect(x0 - 0.01 * H, y - 0.004 * H, x1 + 0.01 * H, y + 0.006 * H, 0xFF333338);
+}
+
+function rooftop(bx, bw, topY, i) {
+  const y = topY * H;
+  stroke(0xFF222222, 0.002 * H);
+  cv.beginPath(); cv.moveTo(bx, y - 0.1 * H); cv.quadraticCurveTo(bx + bw / 2, y - 0.06 * H, bx + bw, y - 0.1 * H); cv.stroke();
+  for (let k = 0; k < 9; k++) {
+    const kk = k / 8, lx = bx + bw * kk, ly = y - 0.1 * H + sin(kk * PI) * 0.04 * H;
+    circle(lx, ly, 0.005 * H, pick(NEON, rnd(i * 9 + k, 130)));
+  }
+  for (let k = 0; k < 2; k++) {
+    const a = -PI / 2 + sin(t * 0.9 + k * 2 + i) * 0.6, lx = bx + bw * (0.3 + k * 0.4);
+    line(lx, y, lx + cos(a) * H, y + sin(a) * H, withA(k ? 0xFF39FF88 : 0xFFFF2D95, 70), 0.004 * H);
+  }
+  for (let k = 0; k < 3; k++) figure(bx + bw * (0.25 + k * 0.25), y, 0.1 * H, danceP(t * 5 + k * 2 + i, (k + i) & 3), 1, 0xFF0C0810);
+  rect(bx, y - 0.015 * H, bx + bw, y, 0xFF1A1A1E);
+}
+
+// ---------------------------------------------------------------- events
+
+const EVENTS = [evKungfu, evMuayThai, evGogo, evKaraoke, evBeerTable, evMassage, evCops, evTuktuk, evMonks, evElephant, evRelocant, evTiktok, evBrawl];
+
+function eventType(j) {
+  if (rnd(j, 140) < 0.08) return -1;
+  return (rnd(j, 141) * EVENTS.length) | 0;
+}
+
+function drawEvents() {
+  const off = camX * FAC;
+  const j0 = Math.floor(off / SLOT) - 1, j1 = j0 + Math.floor(W / H / SLOT) + 3;
   for (let j = j0; j <= j1; j++) {
-    const x = (j * 0.8 - off) * H;
-    rect(x - 0.024 * H, 0.5 * H, x + 0.024 * H, 0.645 * H, 0xFF707070);
-    rect(x + 0.008 * H, 0.5 * H, x + 0.024 * H, 0.645 * H, 0xFF5A5A5A);
-    rect(x - 0.04 * H, 0.5 * H, x + 0.04 * H, 0.515 * H, 0xFF666664);
+    const ty = eventType(j);
+    if (ty < 0) continue;
+    const cx = eventX(j);
+    if (cx < -0.8 * H || cx > W + 0.8 * H) continue;
+    EVENTS[ty](cx, j, t + rnd(j, 142) * 30);
   }
 }
+
+const S_ = () => FS * H;
+const GY = () => G2 * H;
+const FG = 0xFFEDEDED;
+
+function evKungfu(cx, j, lt) {
+  const c = mod(lt, 9), U = H, S = S_(), G = GY();
+  let hX = 0, hP = fightP(lt), hF = 1;
+  if (c >= 1 && c < 1.45) { const k = (c - 1) / 0.45; hP = lerpP(fightP(lt), FLY, smooth(k * 2)); hX = 0.1 * k; hP[9] = -0.28 * sin(PI * k); }
+  else if (c >= 1.45 && c < 2.2) { const k = (c - 1.45) / 0.75; hP = lerpP(FLY, fightP(lt), smooth(k)); hX = 0.1 * (1 - k); hP[9] = 0; }
+  else if (c >= 2.2 && c < 3.2) { hF = -1; hP = c < 2.9 ? lerpP(fightP(lt), KICK, smooth((c - 2.2) / 0.45)) : lerpP(KICK, fightP(lt), smooth((c - 2.9) / 0.3)); }
+  else if (c >= 3.2 && c < 4.2) { hP = mod(c * 3, 1) < 0.5 ? PUNCH : fightP(lt); hF = mod(c * 1.5, 1) < 0.5 ? 1 : -1; }
+  else if (c >= 4.2 && c < 5.2) hP = lerpP(STAND, BOW, sin(PI * (c - 4.2)));
+  const villain = (side, hitAt, upAt) => {
+    let x = side * 0.22, P = fightP(lt + side);
+    if (c < 1) { x = side * (0.42 - 0.2 * c); P = walkP(lt * 6, false); }
+    else if (c >= hitAt && c < upAt) {
+      const k = clamp01((c - hitAt) / 0.5);
+      x = side * (0.22 + 0.25 * (1 - (1 - k) * (1 - k)));
+      P = lerpP(HIT, LIE, smooth(k));
+    } else if (c >= upAt && c < upAt + 0.8) { x = side * 0.47; P = lerpP(LIE, STAND, smooth((c - upAt) / 0.8)); }
+    else if (c >= upAt + 0.8) { x = side * 0.42; P = STAND; }
+    figure(cx + x * U, G, S, P, -side, 0xFFD8D8D8, { shirt: 0xFF303030 });
+  };
+  villain(1, 1.4, 6.0);
+  villain(-1, 2.65, 7.0);
+  figure(cx + hX * U, G, S, hP, hF, FG, { shirt: 0xFFE8E8E8 });
+  if (c > 1.05 && c < 1.8) bubble(cx + hX * U, G - S * 1.15, "Кия!", 0.03 * H, 1);
+  if (c > 2.5 && c < 3.1) bubble(cx, G - S * 1.15, "Хья!", 0.03 * H, 1);
+}
+
+function evMuayThai(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.36 * U, G, cx + 0.36 * U, G + 0.012 * U, 0xFF3A2A6A);
+  for (const s of [-1, 1]) line(cx + s * 0.34 * U, G, cx + s * 0.34 * U, G - 0.17 * U, 0xFFB0B0B0, 0.008 * U);
+  [0xFFD02020, 0xFFE8E8E8, 0xFF2040C0].forEach((c, k) => line(cx - 0.34 * U, G - (0.06 + k * 0.045) * U, cx + 0.34 * U, G - (0.06 + k * 0.045) * U, c, 0.004 * U));
+  text("MUAY THAI", cx, G - 0.2 * U, 0.03 * U, 0xFFFFD23F, "center", [0xFFFF5A36, 0.01 * U]);
+  const c = mod(lt, 4), aAtk = c < 2, k = mod(c, 2);
+  const atk = k < 0.4 ? fightP(lt) : k < 0.8 ? lerpP(fightP(lt), KICK, smooth((k - 0.4) / 0.25)) : lerpP(KICK, fightP(lt), smooth((k - 0.8) / 0.4));
+  const def = k > 0.55 && k < 0.95 ? HIT : fightP(lt + 1);
+  figure(cx - 0.12 * U, G, S, aAtk ? atk : def, 1, 0xFFE8C8A0, { shirt: 0xFFD02020 });
+  figure(cx + 0.12 * U, G, S, aAtk ? def : atk, -1, 0xFFC8A880, { shirt: 0xFF2040C0 });
+  for (let n = 0; n < 4; n++) figure(cx + (-0.3 + n * 0.2) * U, G + 0.03 * U, S * 0.8, cheerP(lt * 3 + n), 1, 0xFF9A9AA8);
+  if (k > 0.55 && k < 1.1) bubble(cx, G - 0.24 * U, "ฮู้ว!!", 0.026 * H, 1);
+}
+
+function evGogo(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.33 * U, G - 0.2 * U, cx + 0.33 * U, G, 0xFF1A0820);
+  for (let k = 0; k < 6; k++) {
+    const a = lt * 2 + k;
+    glow(cx + sin(a) * 0.28 * U, G - 0.12 * U + cos(a * 1.3) * 0.06 * U, 0.08 * U, NEON[k], 90);
+  }
+  text("GO GO", cx, G - 0.215 * U, 0.04 * U, 0xFFFF2D95, "center", [0xFFFF2D95, 0.02 * U]);
+  rect(cx - 0.3 * U, G - 0.03 * U, cx + 0.3 * U, G, 0xFF3A1A40);
+  for (let n = 0; n < 3; n++) {
+    const x = cx + (-0.18 + n * 0.18) * U;
+    line(x, G - 0.03 * U, x, G - 0.2 * U, 0xFFC0C0C8, 0.004 * U);
+    figure(x + 0.025 * U, G - 0.03 * U, S, danceP(lt * 4 + n * 1.7, (n + j) & 3), n & 1 ? 1 : -1, 0xFFF0D0D8, { skirt: pick(NEON, rnd(j * 3 + n, 150)), hair: 0xFF1A1010 });
+  }
+  figure(cx + 0.3 * U, G, S * 0.95, sin(lt) > 0.5 ? DRINK : STAND, -1, 0xFFE8C0A0, { bottle: true, shirt: 0xFFE87A2A });
+}
+
+function evKaraoke(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.3 * U, G - 0.2 * U, cx + 0.3 * U, G, 0xFF101830);
+  rect(cx - 0.12 * U, G - 0.17 * U, cx + 0.12 * U, G - 0.08 * U, 0xFF2A5AC8);
+  text(mod(lt, 8) < 4 ? "СИЗЫЙ ♪" : "MY HEART ♪", cx, G - 0.115 * U, 0.022 * U, 0xFFFFFFFF);
+  text("KARAOKE", cx, G - 0.215 * U, 0.035 * U, 0xFF00E5FF, "center", [0xFF00E5FF, 0.02 * U]);
+  figure(cx, G, S, singP(lt * 2), 1, FG, { mic: true, shirt: 0xFFE8E8E8 });
+  figure(cx - 0.2 * U, G, S * 0.95, mod(lt, 5) < 1 ? DRINK : danceP(lt * 2, 3), 1, 0xFFE0C8A8, { bottle: true, shirt: 0xFF2A9A5A });
+  figure(cx + 0.2 * U, G, S * 0.95, cheerP(lt * 2), -1, 0xFFD8B898, { shirt: 0xFFC83A3A });
+  for (let k = 0; k < 3; k++) {
+    const m = mod(lt * 0.5 + k / 3, 1);
+    text(k & 1 ? "♫" : "♪", cx + 0.05 * U + sin(m * 6 + k) * 0.03 * U, G - S * 1.1 - m * 0.12 * U, 0.03 * U, withA(0xFFFFFF, 255 * (1 - m)));
+  }
+  if (mod(lt, 8) < 2.5) bubble(cx, G - S * 1.25, mod(lt, 16) < 8 ? "сизый, сизый..." : "near, far...", 0.026 * H, 1);
+}
+
+function evBeerTable(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, cheers = mod(lt, 5) < 1.2;
+  for (let n = 0; n < 4; n++) {
+    const x = cx + (-0.24 + n * 0.16) * U, sleeper = n === 3;
+    const P = sleeper ? [1.1, 1.57, 1.57, 1.5, 1.5, 1.4, 0.4, 1.5, 0.3, 0.25, 0, 0.3]
+      : cheers ? [0, 1.57, 1.57, 1.5, 1.5, 0.9, 0.6, 2.7, 0.2, 0.25, 0, -0.2]
+      : lerpP(SIT, [0, 1.57, 1.57, 1.5, 1.5, 0.9, 0.6, 2.2, 2.4, 0.25, 0, -0.3], smooth(sin(lt * 1.3 + n) - 0.3));
+    figure(x, G, S, P, n < 2 ? 1 : -1, 0xFFE0C8A8, { bottle: !sleeper, shirt: pick([0xFF2A6A9A, 0xFFE8E8E8, 0xFFC86A2A, 0xFF5A5A5A], rnd(j * 4 + n, 151)) });
+    rect(x - 0.03 * U, G - 0.07 * U, x + 0.03 * U, G - 0.06 * U, 0xFFC03030);
+    line(x, G - 0.06 * U, x, G, 0xFFC03030, 0.004 * U);
+  }
+  rect(cx - 0.2 * U, G - 0.085 * U, cx + 0.2 * U, G - 0.07 * U, 0xFF6A4A2A);
+  line(cx, G - 0.07 * U, cx, G, 0xFF6A4A2A, 0.01 * U);
+  for (let k = 0; k < 5; k++) rrect(cx + (-0.15 + k * 0.07) * U, G - 0.125 * U, cx + (-0.137 + k * 0.07) * U, G - 0.085 * U, 0.003 * U, 0xE01B6B32);
+  rrect(cx - 0.04 * U, G - 0.12 * U, cx + 0.02 * U, G - 0.085 * U, 0.005 * U, 0xFFB0B8C0);
+  if (cheers) bubble(cx, G - S * 1.25, "ชนแก้ว! Чон кэу!", 0.026 * H, 1);
+  if (mod(lt, 7) > 4) text("z", cx + 0.25 * U, G - 0.1 * U - mod(lt, 1) * 0.04 * U, 0.025 * U, 0xAAFFFFFF);
+}
+
+function evMassage(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.28 * U, G - 0.2 * U, cx + 0.28 * U, G, 0xFF2A1420);
+  glow(cx, G - 0.1 * U, 0.3 * U, 0xFFFF5AA0, 50);
+  text("MASSAGE นวด", cx, G - 0.215 * U, 0.03 * U, 0xFFFF8AC8, "center", [0xFFFF2D95, 0.015 * U]);
+  for (let n = 0; n < 2; n++) {
+    const x = cx + (-0.1 + n * 0.2) * U;
+    rect(x - 0.04 * U, G - 0.07 * U, x + 0.04 * U, G - 0.06 * U, 0xFF8A6A4A);
+    line(x - 0.035 * U, G - 0.06 * U, x - 0.035 * U, G, 0xFF8A6A4A, 0.004 * U);
+    line(x + 0.035 * U, G - 0.06 * U, x + 0.035 * U, G, 0xFF8A6A4A, 0.004 * U);
+    const P = SIT.slice(); P[7] = 2.4; P[8] = 0.4 + 0.5 * sin(lt * 7 + n);
+    figure(x, G, S, P, n ? -1 : 1, 0xFFF0D0B8, { skirt: 0xFFFF5AA0, hair: 0xFF1A1010 });
+  }
+  if (mod(lt, 6) < 2.2) bubble(cx, G - S * 1.15, "Massaaage, sir?", 0.026 * H, 1);
+}
+
+function evCops(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, c = mod(lt, 9);
+  let tX, tP, cX, cP, cF = -1, a = 1;
+  if (c < 3) { const k = c / 3; tX = lerp(0.55, -0.15, k); tP = walkP(lt * 12, true); cX = tX + 0.25; cP = walkP(lt * 12 + 1, true); cP[7] = 2.6; }
+  else if (c < 3.5) { const k = (c - 3) / 0.5; tX = -0.15 - 0.1 * k; tP = lerpP(HIT, LIE, smooth(k)); cX = lerp(0.1, -0.02, k); cP = walkP(lt * 8, true); }
+  else if (c < 7.5) { tX = -0.25; tP = LIE.slice(); tP[5] = 2.9 + 0.3 * sin(lt * 9); tP[7] = 2.6; cX = -0.02; cP = batonP(lt * 7); }
+  else { const k = (c - 7.5) / 1.5; a = 1 - k; tX = -0.25; tP = LIE; cX = -0.02 + 0.3 * k; cP = walkP(lt * 6, false); cF = 1; }
+  cv.globalAlpha = a;
+  figure(cx + tX * U, G, S, tP, -1, 0xFFD8B898, { shirt: 0xFF1A1A1A, bag: 0xFFC8A030 });
+  figure(cx + cX * U, G, S, cP, cF, 0xFFD8B898, { shirt: 0xFF3A4A6A, hat: "cop", baton: true });
+  cv.globalAlpha = 1;
+  if (c > 0.4 && c < 2.2) bubble(cx + cX * U, G - S * 1.2, "หยุด! Стоять!", 0.026 * H, 1);
+  if (c > 4 && c < 6) bubble(cx + tX * U, G - S * 0.6, "ай бля, всё, всё!", 0.026 * H, 1);
+}
+
+function evTuktuk(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, c = mod(lt, 8);
+  cv.save(); cv.translate(cx + 0.18 * U, G); cv.scale(-0.17 * U, 0.17 * U); tuktuk(); cv.restore();
+  const driverTalk = c < 2 || (c > 4 && c < 6);
+  figure(cx - 0.02 * U, G, S, driverTalk ? waveP(lt) : STAND, -1, 0xFFC8A070, { shirt: 0xFFE8A030 });
+  figure(cx - 0.2 * U, G, S * 1.05, driverTalk ? STAND : [0, -0.1, 0.1, 0.1, 0.1, 1.4, 0.8, 1.6, 0.4 + 0.3 * sin(lt * 9), 0, 0, 0.1], 1, 0xFFFF9A8A, { shirt: 0xFF4AC8E8, hat: "sun", bag: 0xFF3A6A3A });
+  const lines = ["500 baht!", "Too much!", "OK, 400!", "Два ста, брат"];
+  const n = Math.floor(c / 2);
+  bubble(cx + (n % 2 === 0 ? -0.02 : -0.2) * U, G - S * 1.2, lines[n], 0.026 * H, 1);
+}
+
+function evMonks(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, k = mod(lt, 14) / 14;
+  cv.globalAlpha = smooth(k * 6) * (1 - smooth((k - 0.85) * 6.6));
+  for (let n = 0; n < 3; n++) {
+    const P = walkP(lt * 3 + n * 0.8, false); P[5] = 0.9; P[6] = 1.5; P[7] = 0.9; P[8] = 1.5;
+    figure(cx + (lerp(-0.5, 0.5, k) - n * 0.16) * U, G, S, P, 1, 0xFFC89A70, { robe: 0xFFE87A10, bowl: true });
+  }
+  cv.globalAlpha = 1;
+}
+
+function evElephant(cx, j, lt) {
+  const G = GY(), U = H, k = mod(lt, 16) / 16;
+  const x = cx + lerp(0.5, -0.5, k) * U, st = sin(lt * 3);
+  cv.globalAlpha = smooth(k * 6) * (1 - smooth((k - 0.85) * 6.6));
+  cv.save(); cv.translate(x, G); cv.scale(-U * 0.3, U * 0.3);
+  const gr = 0xFF8A8A90, dk = 0xFF6E6E74;
+  for (const [lx, ph] of [[-0.25, 0], [0.18, PI]]) {
+    line(lx - 0.03, -0.35, lx - 0.03 + sin(lt * 3 + ph) * 0.05, -0.02, dk, 0.11);
+    line(lx + 0.05, -0.35, lx + 0.05 - sin(lt * 3 + ph) * 0.05, -0.02, gr, 0.11);
+  }
+  oval(-0.4, -0.72, 0.3, -0.25, gr);
+  circle(0.32, -0.6, 0.17, gr);
+  stroke(gr, 0.08); cv.beginPath(); cv.moveTo(0.42, -0.55); cv.quadraticCurveTo(0.55, -0.3 + st * 0.05, 0.48 + st * 0.06, -0.08); cv.stroke();
+  oval(0.15, -0.75, 0.33, -0.45, dk);
+  circle(0.37, -0.64, 0.015, 0xFF111111);
+  line(-0.4, -0.55, -0.48, -0.35 + st * 0.03, dk, 0.025);
+  cv.restore();
+  figure(x - 0.05 * U, G - 0.2 * U, FS * H * 0.9, SIT, -1, 0xFFC8A070, { shirt: 0xFF3A6AC8 });
+  cv.globalAlpha = 1;
+}
+
+function evRelocant(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.28 * U, G - 0.2 * U, cx + 0.28 * U, G, 0xFF2A2018);
+  text("COFFEE · WiFi", cx, G - 0.215 * U, 0.028 * U, 0xFFFFC070, "center", [0xFFFF8A2A, 0.01 * U]);
+  rect(cx - 0.1 * U, G - 0.085 * U, cx + 0.1 * U, G - 0.075 * U, 0xFF8A6A4A);
+  line(cx, G - 0.075 * U, cx, G, 0xFF8A6A4A, 0.008 * U);
+  poly([cx - 0.02 * U, G - 0.085 * U, cx + 0.06 * U, G - 0.085 * U, cx + 0.05 * U, G - 0.14 * U, cx - 0.01 * U, G - 0.14 * U], 0xFFB8BCC4);
+  glow(cx + 0.02 * U, G - 0.11 * U, 0.05 * U, 0xFFD8E8FF, 120);
+  rect(cx + 0.065 * U, G - 0.105 * U, cx + 0.08 * U, G - 0.085 * U, 0xFFE8E8E8);
+  const P = SIT.slice(); P[5] = 1.3 + 0.1 * sin(lt * 20); P[6] = 0.4; P[7] = 1.3 + 0.1 * sin(lt * 23); P[8] = 0.4; P[0] = 0.2;
+  figure(cx - 0.08 * U, G, S, P, 1, 0xFFE8D0B8, { shirt: 0xFF2A2A2A });
+  const lines = ["Давайте синканёмся", "У меня созвон", "Кто по средам работает?", "Я на удалёнке"];
+  if (mod(lt, 5) < 2.8) bubble(cx - 0.08 * U, G - S * 1.15, lines[Math.floor(lt / 5) % 4], 0.026 * H, 1);
+}
+
+function evTiktok(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  const P = danceP(lt * 6, 3); P[7] = 2.5; P[8] = 0;
+  figure(cx, G, S, P, 1, 0xFFFFD0C0, { selfie: true, shirt: 0xFFFF5AC8, hair: 0xFFE8D060 });
+  if (mod(lt, 6) < 2) bubble(cx, G - S * 1.6, "Hi guys!", 0.026 * H, 1);
+  figure(cx + 0.18 * U, G, S * 0.95, STAND, -1, 0xFFC8A070, { shirt: 0xFF2A9A5A });
+  if (mod(lt, 6) > 3 && mod(lt, 6) < 5) bubble(cx + 0.18 * U, G - S * 1.15, "...", 0.026 * H, 1);
+}
+
+function evBrawl(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, c = mod(lt, 7);
+  const swing = k => k < 0.5 ? lerpP(fightP(lt), PUNCH, smooth(k * 2)) : lerpP(PUNCH, fightP(lt), smooth((k - 0.5) * 2));
+  let aP = fightP(lt), bP = fightP(lt + 1), bX = 0.12;
+  if (c < 1) { aP = swing(c); aP[0] = 0.6 * sin(PI * c); }
+  else if (c < 2) bP = swing(c - 1);
+  else if (c < 2.6) aP = swing((c - 2) / 0.6);
+  else if (c < 5.5) { bP = lerpP(HIT, LIE, smooth((c - 2.6) / 0.5)); bX = 0.2; if (c > 3.5) aP = cheerP(lt * 2); }
+  else { bP = lerpP(LIE, STAND, smooth((c - 5.5) / 0.8)); bX = 0.2; }
+  figure(cx - 0.12 * U, G, S, aP, 1, 0xFFFFB0A0, { shirt: 0xFFE8E8E8 });
+  figure(cx + bX * U, G, S, bP, -1, 0xFFFFA898, { shirt: 0xFF3A6AC8 });
+  figure(cx + 0.35 * U, G, S * 0.9, mod(lt, 2) < 1 ? DRINK : STAND, -1, 0xFFE8C0A0, { bottle: true, shirt: 0xFF8A2A2A });
+  if (c < 1.5) bubble(cx - 0.12 * U, G - S * 1.2, "Ты кто такой?!", 0.026 * H, 1);
+  else if (c > 3 && c < 5) bubble(cx - 0.12 * U, G - S * 1.2, "Давай, до свиданья!", 0.026 * H, 1);
+}
+
+// ---------------------------------------------------------------- street
 
 function drawRoad() {
   rect(0, 0.64 * H, W, 0.715 * H, 0xFF202024);
@@ -365,12 +915,12 @@ function drawRoad() {
     const x = (j * 0.5 - camX) * H;
     line(x, 0.678 * H, x + 0.25 * H, 0.678 * H, 0x66D8D8D8, 0.004 * H);
   }
-  const loop = W / H + 3;
+  const loop = W / H + 4;
   for (let lane = 0; lane < 2; lane++) {
     const v = lane === 0 ? -1.3 : 1.0, yb = lane === 0 ? 0.672 : 0.712, s = lane === 0 ? 0.85 : 1;
-    for (let k = 0; k < 3; k++) {
-      const id = lane * 3 + k;
-      const rel = mod(k * loop / 3 + rnd(id, 22) * 0.4 + t * v - camX, loop) - 1.5;
+    for (let k = 0; k < 2; k++) {
+      const id = lane * 2 + k;
+      const rel = mod(k * loop / 2 + rnd(id, 22) * 0.8 + t * v - camX, loop) - 2;
       cv.save();
       cv.translate(rel * H, yb * H);
       cv.scale(Math.sign(v) * H * 0.2 * s, H * 0.2 * s);
@@ -433,7 +983,7 @@ function drawWalk() {
     rect(x, 0.715 * H, x + 0.2 * H + 1, 0.735 * H, (j & 1) === 0 ? 0xFFD8A82A : 0xFF2C2C30);
   }
   rect(0, 0.715 * H, W, 0.72 * H, 0x33FFFFFF);
-  const g = cv.createLinearGradient(0, 0.735 * H, 0, Math.max(H, H + 1));
+  const g = cv.createLinearGradient(0, 0.735 * H, 0, H);
   g.addColorStop(0, "#3C3C44"); g.addColorStop(1, "#1C1C22");
   cv.fillStyle = g; cv.fillRect(0, 0.735 * H, W, 0.265 * H + 2);
   j0 = Math.floor(camX / 0.3) - 1; j1 = j0 + Math.floor(W / H / 0.3) + 3;
@@ -443,13 +993,12 @@ function drawWalk() {
   }
   line(0, 0.80 * H, W, 0.80 * H, 0x14FFFFFF, 0.003 * H);
   line(0, 0.88 * H, W, 0.88 * H, 0x14FFFFFF, 0.003 * H);
-
   j0 = Math.floor(camX / 1.3) - 1; j1 = j0 + Math.floor(W / H / 1.3) + 3;
   for (let j = j0; j <= j1; j++) {
     if (rnd(j, 30) < 0.5) continue;
     const cx = (j * 1.3 + 0.6 - camX) * H, w = (0.12 + rnd(j, 31) * 0.12) * H;
     oval(cx - w, 0.94 * H, cx + w, 0.975 * H, 0x55080C18);
-    const nc = NEON[(rnd(j, 32) * NEON.length) | 0];
+    const nc = pick(NEON, rnd(j, 32));
     cv.save();
     cv.translate(0, 0.957 * H); cv.scale(1, 0.15); cv.translate(0, -0.957 * H);
     glow(cx + sin(t * 1.3 + j) * w * 0.2, 0.957 * H, w * 0.8, nc, 70);
@@ -463,44 +1012,76 @@ function drawWalk() {
   }
 }
 
-function drawProps() {
-  const j0 = Math.floor(camX / 0.9) - 2, j1 = j0 + Math.floor(W / H / 0.9) + 4;
-  for (let j = j0; j <= j1; j++) {
-    if (rnd(j, 40) > 0.88) continue;
-    const x = (j * 0.9 + 0.2 + rnd(j, 42) * 0.4 - camX) * H;
-    switch ((rnd(j, 41) * 8) | 0) {
-      case 0: lamp(x); break;
-      case 1: trafficLight(x, j); break;
-      case 2: elecBox(x, j); break;
-      case 3: bench(x, j); break;
-      case 4: planter(x, j); break;
-      case 5: palm(x, j); break;
-      case 6: cart(x, j); break;
-      default: dog(x, j); break;
+function drawCrossings() {
+  const c0 = Math.floor((camX - 8) / CROSS);
+  for (let c = c0; c <= c0 + 2; c++) {
+    const xc = crossX(c), x0 = (xc - 0.45 - camX) * H, x1 = (xc + 0.45 - camX) * H;
+    if (x1 < -0.3 * H || x0 > W + 0.3 * H) continue;
+    rect(x0, 0.715 * H, x1, H, 0xFF232327);
+    for (let x = x0 + 0.05 * H; x < x1 - 0.08 * H; x += 0.1 * H) {
+      poly([x, 0.75 * H, x + 0.05 * H, 0.75 * H, x + 0.065 * H, 0.995 * H, x - 0.005 * H, 0.995 * H], 0xCCE0E0E0);
     }
+    rect(x0 - 0.012 * H, 0.715 * H, x0, H, 0xFF7A7A80);
+    rect(x1, 0.715 * H, x1 + 0.012 * H, H, 0xFF7A7A80);
+    const lx = x0 - 0.05 * H, red = isRed(c);
+    rect(lx - 0.008 * H, 0.42 * H, lx + 0.008 * H, 0.745 * H, 0xFF3A3A40);
+    rrect(lx - 0.045 * H, 0.3 * H, lx + 0.045 * H, 0.44 * H, 0.008 * H, 0xFF141416);
+    const mc = red ? 0xFFFF3030 : 0xFF30FF7A;
+    glow(lx, 0.35 * H, 0.09 * H, mc, 110);
+    figure(lx, 0.39 * H, 0.07 * H, red ? STAND : walkP(t * 6, false), 1, mc);
+    text(String(Math.ceil(lightLeft(c))), lx, 0.432 * H, 0.03 * H, mc);
   }
 }
 
-function lamp(x) {
-  cv.save();
-  cv.translate(0, 0.86 * H); cv.scale(1, 0.2); cv.translate(0, -0.86 * H);
-  glow(x + 0.08 * H, 0.86 * H, 0.3 * H, 0xFFFFC870, 60);
-  cv.restore();
-  line(x, 0.745 * H, x, 0.2 * H, 0xFF3A3A40, 0.012 * H);
-  line(x, 0.2 * H, x + 0.08 * H, 0.19 * H, 0xFF3A3A40, 0.008 * H);
-  glow(x + 0.08 * H, 0.205 * H, 0.13 * H, 0xFFFFC870, 110);
-  rrect(x + 0.055 * H, 0.19 * H, x + 0.105 * H, 0.205 * H, 0.005 * H, 0xFFFFE6B0);
+function drawSteps() {
+  const s0 = Math.floor((camX - 12) / STEPGAP);
+  for (let s = s0; s <= s0 + 2; s++) {
+    if (!validStep(s)) continue;
+    const xs = stepX(s), X0 = (xs - camX) * H, X1 = (xs + 0.5 - camX) * H;
+    if (X1 < -50 || X0 > W + 50) continue;
+    rect(X0, 0.84 * H, X1, 0.99 * H, 0xFF4E4E58);
+    rect(X0, 0.84 * H, X1, 0.85 * H, 0xFF6A6A74);
+    rect(X0 - 0.014 * H, 0.84 * H, X0, 0.99 * H, 0xFF26262C);
+    rect(X1, 0.84 * H, X1 + 0.014 * H, 0.99 * H, 0xFF5E5E68);
+  }
 }
 
-function trafficLight(x, j) {
-  line(x, 0.745 * H, x, 0.33 * H, 0xFF3A3A40, 0.012 * H);
-  rrect(x - 0.024 * H, 0.19 * H, x + 0.024 * H, 0.34 * H, 0.008 * H, 0xFF18181A);
-  const red = mod(t + j * 3, 12) < 7;
-  circle(x, 0.22 * H, 0.014 * H, red ? 0xFFFF2424 : 0xFF3A1010);
-  circle(x, 0.265 * H, 0.014 * H, 0xFF3A3010);
-  circle(x, 0.31 * H, 0.014 * H, red ? 0xFF0F3A1A : 0xFF20FF6A);
-  if (red) glow(x, 0.22 * H, 0.09 * H, 0xFFFF2424, 140);
-  else glow(x, 0.31 * H, 0.09 * H, 0xFF20FF6A, 140);
+function drawPoles() {
+  const step = 1.6, j0 = Math.floor(camX / step) - 1, j1 = j0 + Math.floor(W / H / step) + 3;
+  const top = 0.12;
+  for (let j = j0; j <= j1; j++) {
+    const x0 = (j * step + 0.3 - camX) * H, x1 = x0 + step * H;
+    for (let k = 0; k < 7; k++) {
+      const y0 = (top + 0.03 + k * 0.012 + rnd(j * 7 + k, 160) * 0.01) * H, y1 = (top + 0.03 + k * 0.012 + rnd((j + 1) * 7 + k, 160) * 0.01) * H;
+      stroke(0xFF0A0A0C, (0.002 + rnd(j * 7 + k, 161) * 0.003) * H);
+      cv.beginPath(); cv.moveTo(x0, y0); cv.quadraticCurveTo((x0 + x1) / 2, Math.max(y0, y1) + (0.05 + rnd(j * 7 + k, 162) * 0.06) * H, x1, y1); cv.stroke();
+    }
+    rect(x0 - 0.011 * H, top * H, x0 + 0.011 * H, 0.745 * H, 0xFF5A5A58);
+    rect(x0 + 0.004 * H, top * H, x0 + 0.011 * H, 0.745 * H, 0xFF484846);
+    stroke(0xFF0A0A0C, 0.003 * H);
+    cv.beginPath();
+    for (let k = 0; k < 14; k++) {
+      const r = (0.015 + rnd(j * 14 + k, 163) * 0.025) * H;
+      cv.moveTo(x0 + r, (top + 0.07) * H);
+      cv.ellipse(x0, (top + 0.07) * H, r, r * 0.6, k * 2.4, 0, PI * 1.6);
+    }
+    cv.stroke();
+    rect(x0 - 0.03 * H, (top + 0.13) * H, x0 + 0.03 * H, (top + 0.19) * H, 0xFF3A3A3E);
+  }
+}
+
+function drawProps() {
+  const j0 = Math.floor(camX / 0.9) - 2, j1 = j0 + Math.floor(W / H / 0.9) + 4;
+  for (let j = j0; j <= j1; j++) {
+    if (rnd(j, 40) > 0.5) continue;
+    const xw = j * 0.9 + 0.2 + rnd(j, 42) * 0.4;
+    if (nearCross(xw, 0.9)) continue;
+    const x = (xw - camX) * H;
+    const r = rnd(j, 41);
+    if (r < 0.45) bench(x, j);
+    else if (r < 0.75) dog(x, j);
+    else planter(x, j);
+  }
 }
 
 function elecBox(x, j) {
@@ -528,7 +1109,6 @@ function bench(x, j) {
     line(x - 0.21 * H, 0.65 * H, x - 0.03 * H, 0.652 * H, 0xFF141418, 0.03 * H);
     line(x - 0.21 * H, 0.642 * H, x - 0.03 * H, 0.644 * H, 0xFFE8D040, 0.003 * H);
     rrect(x - 0.04 * H, 0.6 * H, x + 0.14 * H, 0.665 * H, 0.025 * H, 0xFFDCE6F0);
-    line(x, 0.61 * H, x + 0.1 * H, 0.655 * H, 0x553C5A80, 0.004 * H);
     circle(x + 0.165 * H, 0.615 * H, 0.028 * H, 0xFFA0704A);
     circle(x + 0.172 * H, 0.6 * H, 0.022 * H, 0xFF141012);
     rrect(x - 0.03 * H, 0.6 * H, x + 0.1 * H, 0.625 * H, 0.012 * H, 0xFFB0B8C0);
@@ -544,33 +1124,16 @@ function bench(x, j) {
 function planter(x, j) {
   const greens = [0xFF183A22, 0xFF22502E, 0xFF2C5F35];
   for (let k = 0; k < 6; k++) {
-    circle(x + (-0.17 + k * 0.07) * H, (0.645 - rnd(j * 6 + k, 61) * 0.03) * H, (0.05 + rnd(j * 6 + k, 62) * 0.03) * H,
-      greens[(rnd(j * 6 + k, 60) * 3) | 0]);
+    circle(x + (-0.17 + k * 0.07) * H, (0.645 - rnd(j * 6 + k, 61) * 0.03) * H, (0.05 + rnd(j * 6 + k, 62) * 0.03) * H, pick(greens, rnd(j * 6 + k, 60)));
   }
   rect(x - 0.21 * H, 0.66 * H, x + 0.21 * H, 0.745 * H, 0xFF6E6E6A);
   rect(x - 0.21 * H, 0.66 * H, x + 0.21 * H, 0.67 * H, 0xFF84847E);
-}
-
-function palm(x, j) {
-  const tx = x + (rnd(j, 70) - 0.3) * 0.12 * H, ty = 0.22 * H;
-  stroke(0xFF4A3A2A, 0.025 * H);
-  cv.beginPath(); cv.moveTo(x, 0.745 * H); cv.quadraticCurveTo(x + 0.01 * H, 0.45 * H, tx, ty); cv.stroke();
-  stroke(0xFF1E3D22, 0.016 * H);
-  for (let k = 0; k < 8; k++) {
-    const a = Math.PI * (k / 7) + sin(t * 0.8 + k + j) * 0.05;
-    const ex = tx + cos(Math.PI + a) * 0.17 * H, ey = ty - sin(a) * 0.05 * H + 0.06 * H;
-    cv.beginPath(); cv.moveTo(tx, ty); cv.quadraticCurveTo((tx + ex) / 2, ty - 0.06 * H, ex, ey); cv.stroke();
-  }
-  circle(tx - 0.01 * H, ty + 0.015 * H, 0.012 * H, 0xFF3A2A12);
-  circle(tx + 0.012 * H, ty + 0.018 * H, 0.012 * H, 0xFF3A2A12);
 }
 
 function cart(x, j) {
   line(x, 0.53 * H, x, 0.36 * H, 0xFF8A8A90, 0.008 * H);
   fill(0xFFD02A2A);
   cv.beginPath(); cv.moveTo(x - 0.17 * H, 0.4 * H); cv.quadraticCurveTo(x, 0.3 * H, x + 0.17 * H, 0.4 * H); cv.closePath(); cv.fill();
-  line(x, 0.35 * H, x - 0.09 * H, 0.385 * H, 0xFFF0F0F0, 0.006 * H);
-  line(x, 0.35 * H, x + 0.09 * H, 0.385 * H, 0xFFF0F0F0, 0.006 * H);
   rect(x - 0.11 * H, 0.53 * H, x + 0.11 * H, 0.6 * H, 0x88FFE0A0);
   glow(x, 0.565 * H, 0.12 * H, 0xFFFFC060, 110);
   rect(x - 0.12 * H, 0.6 * H, x + 0.12 * H, 0.71 * H, 0xFFB8B8C0);
@@ -580,7 +1143,7 @@ function cart(x, j) {
   wheel(x + 0.08 * H, 0.725 * H, 0.02 * H);
   for (let k = 0; k < 3; k++) {
     const m = mod(t * 0.4 + k / 3 + j * 0.1, 1);
-    circle(x + sin(m * 5 + k) * 0.02 * H, (0.52 - m * 0.15) * H, (0.015 + m * 0.03) * H, withA(0xDDDDDD, (60 * (1 - m)) | 0));
+    circle(x + sin(m * 5 + k) * 0.02 * H, (0.52 - m * 0.15) * H, (0.015 + m * 0.03) * H, withA(0xDDDDDD, 60 * (1 - m)));
   }
 }
 
@@ -594,13 +1157,37 @@ function dog(x, j) {
   line(x - 0.07 * H, 0.735 * H, x - 0.1 * H, 0.742 * H + sin(t * 2 + j) * 0.004 * H, fur, 0.01 * H);
 }
 
-function scooterBump() { return -Math.abs(sin(sx * 60)) * 0.004 * H; }
+function chang(level, cap) {
+  rrect(-0.026, -0.05, 0.026, 0.075, 0.012, 0xD81B6B32);
+  if (level > 0) rect(-0.02, 0.07 - 0.11 * level, 0.02, 0.07, 0x88C88A20);
+  fill(0xD81B6B32);
+  cv.beginPath(); cv.moveTo(-0.026, -0.045); cv.quadraticCurveTo(-0.026, -0.08, -0.009, -0.09); cv.lineTo(0.009, -0.09); cv.quadraticCurveTo(0.026, -0.08, 0.026, -0.045); cv.fill();
+  rect(-0.009, -0.135, 0.009, -0.088, 0xD81B6B32);
+  if (cap) rect(-0.011, -0.145, 0.011, -0.133, 0xFFD8B040);
+  rect(-0.026, -0.015, 0.026, 0.04, 0xFF0E5A2A);
+  line(-0.026, -0.015, 0.026, -0.015, 0xFFD8B040, 0.005);
+  line(-0.026, 0.04, 0.026, 0.04, 0xFFD8B040, 0.005);
+  oval(-0.012, 0.0, 0.012, 0.022, 0xFFD8B040);
+  line(-0.018, -0.03, -0.018, 0.06, 0x55FFFFFF, 0.006);
+}
+
+function drawBottles() {
+  const k = H * CH * 0.85;
+  for (const bx of bottles) {
+    const x = (bx - camX) * H;
+    if (x < -50 || x > W + 50) continue;
+    cv.save(); cv.translate(x, (FY + 0.005 + (onStep(bx) ? -0.02 : 0)) * H - 0.075 * k); cv.scale(k, k); chang(0, false); cv.restore();
+  }
+}
+
+function scooterBump() { return -Math.abs(sin(sx * 60)) * 0.004 * H * (1 - sRot) + (onStep(sx) ? -0.02 * H : 0); }
 
 function drawScooter() {
   cv.save();
   cv.translate((sx - camX) * H, FY * H + scooterBump());
   cv.scale(sFace * H * SC, H * SC);
   oval(-0.55, -0.03, 0.55, 0.04, 0x66000000);
+  if (sRot > 0.01) { cv.rotate(-0.1 * sRot); cv.scale(1, 1 - 0.6 * sRot); }
   wheel(-0.32, -0.09, 0.09); wheel(0.36, -0.09, 0.09);
   line(-0.32, -0.09, -0.32 + cos(wheelRot) * 0.04, -0.09 + sin(wheelRot) * 0.04, 0xFFAAAAAA, 0.015);
   line(0.36, -0.09, 0.36 + cos(wheelRot) * 0.04, -0.09 + sin(wheelRot) * 0.04, 0xFFAAAAAA, 0.015);
@@ -624,11 +1211,12 @@ function drawScooter() {
   circle(0.46, -0.66, 0.03, 0xFFFFF4D8);
   stroke(0x55FFFFFF, 0.02);
   cv.beginPath(); cv.moveTo(-0.46, -0.3); cv.quadraticCurveTo(-0.42, -0.42, -0.25, -0.43); cv.stroke();
+  if (sRot > 0.3) { fill(0x55000000); cv.fillRect(-0.5, -0.2, 1.0, 0.12); }
   cv.restore();
 }
 
 function drawRope() {
-  const ax = (sx - camX) * H + sFace * H * SC * 0.43, ay = FY * H + scooterBump() - H * SC * 0.45;
+  const ax = (sx - camX) * H + sFace * H * SC * 0.43, ay = FY * H + scooterBump() - H * SC * 0.45 * (1 - 0.6 * sRot);
   const d = Math.hypot(ax - handX, ay - handY);
   const sag = Math.max(0.008 * H, (ROPE * H * 1.02 - d) * 0.6);
   stroke(0xFFEDEDED, 0.0035 * H);
@@ -654,15 +1242,17 @@ function bag() {
 
 function drawDude() {
   const k = H * CH, a = sin(phase) * 0.45 * amp, L = lift();
+  const bend = liftT >= 0 ? sin(PI * clamp01(liftT / 2)) : 0;
   cv.save();
   cv.translate((px - camX) * H, FY * H);
-  cv.scale(face * k, k);
+  cv.scale(k, k);
   oval(-0.2, -0.02, 0.22, 0.025, 0x66000000);
   cv.translate(0, bob / CH);
+  if (bend > 0) { cv.translate(0, -0.47); cv.rotate(-0.5 * bend); cv.translate(0, 0.47); }
 
-  const bsx = 0, bsy = -0.79, ba = a * 0.7;
+  const bsx = 0, bsy = -0.79, ba = a * 0.7 + bend * 0.8;
   const bhx = bsx + sin(ba) * 0.36, bhy = bsy + cos(ba) * 0.36;
-  handX = (px - camX) * H + face * k * bhx;
+  handX = (px - camX) * H + k * bhx;
   handY = (FY + bob) * H + k * bhy;
   line(bsx, bsy, bhx, bhy, 0xFFD4A600, 0.07);
   circle(bhx, bhy, 0.03, 0xFFA87048);
@@ -686,7 +1276,7 @@ function drawDude() {
   circle(0.075, -0.93, 0.072, 0xFFB07850);
   fill(0xFF151012);
   cv.beginPath(); cv.moveTo(0.065, -0.945);
-  cv.arc(0.065, -0.945, 0.078, 140 * Math.PI / 180, 345 * Math.PI / 180); cv.closePath(); cv.fill();
+  cv.arc(0.065, -0.945, 0.078, 140 * PI / 180, 345 * PI / 180); cv.closePath(); cv.fill();
   circle(0.055, -0.925, 0.017, 0xFFA06A44);
   circle(0.118, -0.935, 0.008, 0xFF1A1010);
   line(0.12, -0.893, 0.135, -0.895, 0xFF6A3A2A, 0.008);
@@ -705,11 +1295,23 @@ function drawDude() {
 
   const fsx = 0.04, fsy = -0.79, fa = -a * 0.7;
   const ex0 = fsx + sin(fa) * 0.18, ey0 = fsy + cos(fa) * 0.18;
-  const hx0 = fsx + sin(fa) * 0.36, hy0 = fsy + cos(fa) * 0.36;
-  const elx = lerp(ex0, 0.17, L), ely = lerp(ey0, -0.62, L);
-  const hx = lerp(hx0, 0.135, L), hy = lerp(hy0, -0.87, L);
+  let hx0 = fsx + sin(fa) * 0.36, hy0 = fsy + cos(fa) * 0.36;
+  let theta = 0, tx = 0.135, ty = -0.87, elT = [0.17, -0.62];
+  if (sipT >= 0) {
+    const hold = smooth((sipT - 0.35) / 0.4) * (1 - smooth((sipT - 1.1) / 0.2));
+    theta = -1.25 * L - 0.55 * hold;
+    const nl = 0.135 * 0.85;
+    tx = 0.125 - sin(theta) * nl; ty = -0.89 + cos(theta) * nl;
+    elT = [0.24, -0.66];
+  }
+  if (hasBeer && sipT < 0 && L === 0) { hx0 += 0.02; hy0 -= 0.02; }
+  const elx = lerp(ex0, elT[0], L), ely = lerp(ey0, elT[1], L);
+  const hx = lerp(hx0, tx, L), hy = lerp(hy0, ty, L);
   stroke(0xFFF2C200, 0.07);
   cv.beginPath(); cv.moveTo(fsx, fsy); cv.lineTo(elx, ely); cv.lineTo(hx, hy); cv.stroke();
+  if (hasBeer) {
+    cv.save(); cv.translate(hx, hy); cv.rotate(theta); cv.scale(0.85, 0.85); chang(beerLevel, !opened); cv.restore();
+  }
   circle(hx, hy, 0.03, 0xFFB07850);
   if (lightT > 0.4 && lightT < 1.05) {
     const fl = 1 + sin(t * 40) * 0.15;
@@ -726,44 +1328,44 @@ function drawParts() {
     if (q.kind === 0) {
       const r = lerp(q.s0, q.s1, Math.sqrt(k)) * H;
       const a = (255 * q.alpha * (1 - k) * Math.min(1, q.age * 6)) | 0;
-      circle(x, y, r, withA(0xC8C8D2, a));
-    } else {
+      circle(x, y, r, withA(q.col, a));
+    } else if (q.kind === 1) {
       line(x - 0.008 * H, y, x + 0.008 * H, y, 0xFFF0F0F0, 0.006 * H);
       if (k < 0.6) glow(x + 0.008 * H, y, 0.012 * H, 0xFFFF5A1A, (220 * (1 - k / 0.6)) | 0);
+    } else {
+      line(x, y, x - q.vx * 0.04 * H, y - q.vy * 0.04 * H, withA(0xFFFFC040, 255 * (1 - k)), 0.004 * H);
     }
   }
 }
 
+function drawDudeBubble() {
+  const x = (px - camX) * H + 0.03 * H, y = (FY + elevD - CH * 1.02) * H;
+  if (everHeld && !isHolding() && drive < 0.8) {
+    bubble(x, y, NAGS[Math.floor(t / 3.5) % NAGS.length], 0.032 * H, clamp01((0.8 - drive) * 3));
+  } else if (t < bubbleUntil) {
+    bubble(x, y, bubbleText, 0.032 * H, clamp01((bubbleUntil - t) * 3));
+  }
+}
+
 function drawHud() {
-  const sh = [0xFF000000, 0.006 * H, 0.003 * H];
+  const hs = Math.min(SW, SH), sh = [0xFF000000, 0.008 * hs, 0.003 * hs];
   const m = 23 * 60 + 47 + ((t / 6) | 0);
   const clock = String(((m / 60) | 0) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-  const hs = Math.max(H, Math.min(SW, SH) * 0.6);
-  text("Бангкок · Сукхумвит · " + clock, 0.05 * hs, 0.08 * hs, 0.04 * hs, 0xFFFFFFFF, "left", sh);
-  text("Пройдено: " + (meters | 0) + " м", 0.05 * hs, 0.13 * hs, 0.032 * hs, 0xFFDDDDDD, "left", sh);
-  text("Скурено: " + cigs, 0.05 * hs, 0.175 * hs, 0.032 * hs, 0xFFDDDDDD, "left", sh);
+  text("Бангкок · Сукхумвит · " + clock, 0.04 * hs, 0.07 * hs, 0.042 * hs, 0xFFFFFFFF, "left", sh);
+  text("Пройдено: " + (meters | 0) + " м", 0.04 * hs, 0.115 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
+  text("Скурено: " + cigs + " · Выпито чанги: " + beers, 0.04 * hs, 0.155 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
+  const st = drunk < 0.5 ? "трезвый" : drunk < 1.5 ? "навеселе" : drunk < 2.5 ? "хорошо так" : "в говно";
+  text("Состояние: " + st, 0.04 * hs, 0.195 * hs, 0.034 * hs, drunk < 1.5 ? 0xFFDDDDDD : 0xFFFFC070, "left", sh);
 
-  const busy = lightT >= 0 || dragT >= 0 || (hasCig && !lit);
-  circle(btnX, btnY, btnR, busy ? 0x55000000 : 0x99000000);
-  stroke(busy ? 0x66FF8A2A : 0xFFFF8A2A, 0.006 * H);
-  cv.beginPath(); cv.arc(btnX, btnY, btnR, 0, Math.PI * 2); cv.stroke();
-  text("🚬", btnX, btnY + 0.015 * H, 0.075 * H, 0xFFFFFFFF);
-  text(hasCig ? "ЗАТЯЖКА" : "ПОКУРИТЬ", btnX, btnY + 0.07 * H, 0.026 * H, busy ? 0x88FFB070 : 0xFFFFB070);
-
-  if (DEBUG) text("audio: " + (actx ? actx.state : "none") + " step " + step + " session " + (navigator.audioSession ? navigator.audioSession.type : "n/a"), SW / 2, SH - 0.02 * SH, 0.03 * H, 0xFFFFFF00);
   const mb = muteBtn();
   circle(mb.x, mb.y, mb.r, 0x77000000);
   text(muted ? "🔇" : "🔊", mb.x, mb.y + mb.r * 0.38, mb.r * 1.05, 0xFFFFFFFF);
 
-  if (hintT > 0) {
-    const a = (255 * Math.min(1, hintT)) | 0;
-    const touch = matchMedia("(pointer: coarse)").matches;
-    const hint = touch ? "держи справа — идёшь, слева — назад" : "← → или A/D — идти, пробел — курить, M — музыка";
-    text(hint, SW / 2, OY + H * 0.3, 0.036 * H, withA(0xFFFFFF, a), "center", [withA(0xFF000000, a), 0.006 * H, 0.003 * H]);
+  if (!everHeld) {
+    const a = 180 + 75 * sin(t * 3);
+    text("зажми экран — и пошёл", SW / 2, OY + H * 0.3, 0.05 * hs, withA(0xFFFFFF, a), "center", [0xFF000000, 0.01 * hs, 0.004 * hs]);
   }
-  if (SH > SW * 1.2) {
-    text("переверни телефон — так пиздаче", SW / 2, OY * 0.5 + 0.02 * SH, 0.045 * SW, 0xAAFFFFFF, "center", sh);
-  }
+  if (DEBUG) text("audio: " + (actx ? actx.state : "none") + " step " + step + " session " + (navigator.audioSession ? navigator.audioSession.type : "n/a") + " drive " + drive.toFixed(2), SW / 2, SH - 0.02 * SH, 0.03 * hs, 0xFFFFFF00);
 }
 
 // ---------------------------------------------------------------- music
@@ -774,9 +1376,10 @@ const ROOTS = [45, 41, 48, 43];
 const ARP = [0, 1, 2, 3, 2, 1, 0, 1, 0, 1, 2, 3, 2, 1, 2, 1];
 const MELODY = [[0, 76, 6], [6, 74, 2], [8, 72, 4], [12, 71, 4], [16, 69, 8], [24, 72, 4], [28, 74, 4],
   [32, 76, 6], [38, 79, 2], [40, 76, 8], [48, 74, 6], [54, 71, 2], [56, 74, 8]];
-let actx = null, master, duck, revIn, dlyIn, noiseBuf, nextT = 0, step = 0;
+let actx = null, master, duck, revIn, dlyIn, noiseBuf, toneF, nextT = 0, step = 0;
+let tempo = 1, pitchMul = 1;
 let muted = localStorage.getItem("bkMuted") === "1";
-const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+const hz = m => 440 * Math.pow(2, (m - 69) / 12) * pitchMul;
 
 let unlocked = false, silentEl = null;
 
@@ -815,21 +1418,19 @@ for (const ev of ["touchstart", "touchend", "pointerup", "click", "keydown"]) {
   window.addEventListener(ev, unlockAudio, { capture: true, passive: true });
 }
 
-function initAudio(offline) {
+function initAudio() {
   if (actx) { if (actx.state !== "running") actx.resume().catch(() => {}); return; }
   const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC && !offline) return;
-  if (!offline && navigator.audioSession) {
-    try { navigator.audioSession.type = "playback"; } catch (_) {}
-  }
-  actx = offline || new AC();
-  if (!offline) actx.onstatechange = () => { if (actx.state === "interrupted" && !document.hidden) actx.resume().catch(() => {}); };
+  if (!AC) return;
+  if (navigator.audioSession) { try { navigator.audioSession.type = "playback"; } catch (_) {} }
+  actx = new AC();
+  actx.onstatechange = () => { if (actx.state === "interrupted" && !document.hidden) actx.resume().catch(() => {}); };
   const c = actx;
   master = c.createGain();
   master.gain.value = muted ? 0 : 0.55;
-  const tone = c.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = 9000;
+  toneF = c.createBiquadFilter(); toneF.type = "lowpass"; toneF.frequency.value = 9000;
   const comp = c.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4;
-  master.connect(tone); tone.connect(comp); comp.connect(c.destination);
+  master.connect(toneF); toneF.connect(comp); comp.connect(c.destination);
 
   const rev = c.createConvolver();
   const len = c.sampleRate * 3.2, ir = c.createBuffer(2, len, c.sampleRate);
@@ -854,7 +1455,13 @@ function initAudio(offline) {
   for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
 
   nextT = c.currentTime + 0.1;
-  if (!offline) setInterval(schedule, 25);
+  setInterval(schedule, 25);
+}
+
+function updateMusic(holding) {
+  tempo = holding ? 1 : 0.42 + 0.58 * drive;
+  pitchMul = holding ? 1 : 0.7 + 0.3 * drive;
+  if (toneF) toneF.frequency.setTargetAtTime(holding ? 9000 : 700 + 8300 * drive * drive, actx.currentTime, holding ? 0.02 : 0.15);
 }
 
 function route(node, dry, rv, dl, toDuck) {
@@ -863,65 +1470,65 @@ function route(node, dry, rv, dl, toDuck) {
   if (dl) { const d = actx.createGain(); d.gain.value = dl; node.connect(d); d.connect(dlyIn); }
 }
 
-function osc(type, freq, t, stop, detune) {
+function osc(type, freq, t0, stop, detune) {
   const o = actx.createOscillator(); o.type = type; o.frequency.value = freq;
   if (detune) o.detune.value = detune;
-  o.start(t); o.stop(stop);
+  o.start(t0); o.stop(stop);
   return o;
 }
 
-function noise(t, dur) {
+function noise(t0, dur) {
   const n = actx.createBufferSource(); n.buffer = noiseBuf;
-  n.start(t, Math.random() * 0.5); n.stop(t + dur);
+  n.start(t0, Math.random() * 0.5); n.stop(t0 + dur);
   return n;
 }
 
-function pad(chord, t, dur) {
+function pad(chord, t0, dur) {
   const f = actx.createBiquadFilter(); f.type = "lowpass"; f.Q.value = 2;
-  f.frequency.setValueAtTime(500, t); f.frequency.linearRampToValueAtTime(1700, t + dur * 0.6); f.frequency.linearRampToValueAtTime(900, t + dur);
+  f.frequency.setValueAtTime(500, t0); f.frequency.linearRampToValueAtTime(1700, t0 + dur * 0.6); f.frequency.linearRampToValueAtTime(900, t0 + dur);
   const env = actx.createGain();
-  env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.045, t + 0.5);
-  env.gain.setValueAtTime(0.045, t + dur - 0.1); env.gain.linearRampToValueAtTime(0, t + dur + 0.9);
-  for (const m of chord) for (const dt of [-9, 9]) osc("sawtooth", mtof(m), t, t + dur + 1, dt).connect(f);
-  osc("triangle", mtof(chord[0] - 12), t, t + dur + 1).connect(f);
+  env.gain.setValueAtTime(0, t0); env.gain.linearRampToValueAtTime(0.045, t0 + 0.5);
+  env.gain.setValueAtTime(0.045, t0 + dur - 0.1); env.gain.linearRampToValueAtTime(0, t0 + dur + 0.9);
+  for (const m of chord) for (const dt of [-9, 9]) osc("sawtooth", hz(m), t0, t0 + dur + 1, dt).connect(f);
+  osc("triangle", hz(chord[0] - 12), t0, t0 + dur + 1).connect(f);
   f.connect(env);
   route(env, 1, 0.6, 0, true);
 }
 
-function bass(m, t) {
+function bass(m, t0, st) {
   const f = actx.createBiquadFilter(); f.type = "lowpass"; f.Q.value = 4;
-  f.frequency.setValueAtTime(1100, t); f.frequency.exponentialRampToValueAtTime(260, t + 0.2);
+  f.frequency.setValueAtTime(1100, t0); f.frequency.exponentialRampToValueAtTime(260, t0 + 0.2);
   const env = actx.createGain();
-  env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(0.22, t + 0.008);
-  env.gain.exponentialRampToValueAtTime(0.08, t + STEP * 1.8); env.gain.linearRampToValueAtTime(0, t + STEP * 1.95);
-  osc("sawtooth", mtof(m), t, t + STEP * 2).connect(f);
-  osc("square", mtof(m - 12), t, t + STEP * 2).connect(f);
+  env.gain.setValueAtTime(0.0001, t0); env.gain.exponentialRampToValueAtTime(0.22, t0 + 0.008);
+  env.gain.exponentialRampToValueAtTime(0.08, t0 + st * 1.8); env.gain.linearRampToValueAtTime(0, t0 + st * 1.95);
+  osc("sawtooth", hz(m), t0, t0 + st * 2).connect(f);
+  osc("square", hz(m - 12), t0, t0 + st * 2).connect(f);
   f.connect(env);
   route(env, 1, 0, 0, true);
 }
 
-function arp(m, t, vol) {
+function arp(m, t0, vol) {
   const f = actx.createBiquadFilter(); f.type = "lowpass";
-  f.frequency.setValueAtTime(3500, t); f.frequency.exponentialRampToValueAtTime(700, t + 0.16);
+  f.frequency.setValueAtTime(3500, t0); f.frequency.exponentialRampToValueAtTime(700, t0 + 0.16);
   const env = actx.createGain();
-  env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(vol, t + 0.005);
-  env.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-  osc("square", mtof(m), t, t + 0.25).connect(f);
+  env.gain.setValueAtTime(0.0001, t0); env.gain.exponentialRampToValueAtTime(vol, t0 + 0.005);
+  env.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+  osc("square", hz(m), t0, t0 + 0.25).connect(f);
   f.connect(env);
   route(env, 1, 0.3, 0.55, false);
 }
 
-function lead(m, t, dur) {
+function lead(m, t0, dur) {
   const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 2300;
   const env = actx.createGain();
-  env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.08, t + 0.06);
-  env.gain.setValueAtTime(0.08, t + dur - 0.05); env.gain.linearRampToValueAtTime(0, t + dur + 0.25);
-  const lfo = osc("sine", 5.5, t, t + dur + 0.3);
+  env.gain.setValueAtTime(0, t0); env.gain.linearRampToValueAtTime(0.08, t0 + 0.06);
+  env.gain.setValueAtTime(0.08, t0 + dur - 0.05); env.gain.linearRampToValueAtTime(0, t0 + dur + 0.25);
+  const lfo = osc("sine", 5.5, t0, t0 + dur + 0.3);
   const depth = actx.createGain();
-  depth.gain.setValueAtTime(0, t); depth.gain.linearRampToValueAtTime(12, t + Math.min(dur, 0.5));
+  depth.gain.setValueAtTime(0, t0); depth.gain.linearRampToValueAtTime(12, t0 + Math.min(dur, 0.5));
   lfo.connect(depth);
   for (const dt of [-7, 7]) {
-    const o = osc("sawtooth", mtof(m), t, t + dur + 0.3, dt);
+    const o = osc("sawtooth", hz(m), t0, t0 + dur + 0.3, dt);
     depth.connect(o.detune);
     o.connect(f);
   }
@@ -929,92 +1536,139 @@ function lead(m, t, dur) {
   route(env, 1, 0.7, 0.45, false);
 }
 
-function kick(t) {
-  const o = osc("sine", 150, t, t + 0.4);
-  o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+function kick(t0) {
+  const o = osc("sine", 150 * pitchMul, t0, t0 + 0.4);
+  o.frequency.exponentialRampToValueAtTime(42 * pitchMul, t0 + 0.12);
   const env = actx.createGain();
-  env.gain.setValueAtTime(0.95, t); env.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+  env.gain.setValueAtTime(0.95, t0); env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.38);
   o.connect(env);
   route(env, 1, 0, 0, false);
-  duck.gain.cancelScheduledValues(t);
-  duck.gain.setValueAtTime(0.25, t); duck.gain.linearRampToValueAtTime(1, t + 0.32);
+  duck.gain.cancelScheduledValues(t0);
+  duck.gain.setValueAtTime(0.25, t0); duck.gain.linearRampToValueAtTime(1, t0 + 0.32);
 }
 
-function snare(t) {
-  const n = noise(t, 0.3);
-  const bp = actx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1700; bp.Q.value = 0.6;
+function snare(t0) {
+  const n = noise(t0, 0.3);
+  const bp = actx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1700 * pitchMul; bp.Q.value = 0.6;
   const env = actx.createGain();
-  env.gain.setValueAtTime(0.45, t); env.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+  env.gain.setValueAtTime(0.45, t0); env.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
   n.connect(bp); bp.connect(env);
   route(env, 1, 1.4, 0, false);
-  const o = osc("triangle", 190, t, t + 0.12);
+  const o = osc("triangle", 190 * pitchMul, t0, t0 + 0.12);
   const e2 = actx.createGain();
-  e2.gain.setValueAtTime(0.3, t); e2.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  e2.gain.setValueAtTime(0.3, t0); e2.gain.exponentialRampToValueAtTime(0.001, t0 + 0.1);
   o.connect(e2);
   route(e2, 1, 0.6, 0, false);
 }
 
-function hat(t, open) {
-  const n = noise(t, open ? 0.3 : 0.06);
-  const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 7500;
+function hat(t0, open) {
+  const n = noise(t0, open ? 0.3 : 0.06);
+  const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 7500 * pitchMul;
   const env = actx.createGain();
-  env.gain.setValueAtTime(open ? 0.05 : 0.035, t); env.gain.exponentialRampToValueAtTime(0.001, t + (open ? 0.25 : 0.04));
+  env.gain.setValueAtTime(open ? 0.05 : 0.035, t0); env.gain.exponentialRampToValueAtTime(0.001, t0 + (open ? 0.25 : 0.04));
   n.connect(hp); hp.connect(env);
   route(env, 1, 0.1, 0, false);
 }
 
-function playStep(s, t) {
-  const bar = Math.floor(s / 16), st = s % 16, ch = bar % 4, loop = Math.floor(bar / 4);
+function playStep(s, t0, st) {
+  const bar = Math.floor(s / 16), sp = s % 16, ch = bar % 4, loop = Math.floor(bar / 4);
   const intro = bar < 4, breakdown = loop % 6 === 5;
-  if (st === 0) pad(CHORDS[ch], t, STEP * 16);
+  if (sp === 0) pad(CHORDS[ch], t0, st * 16);
   const tones = CHORDS[ch].concat([CHORDS[ch][0] + 12]);
-  arp(tones[ARP[st]] + 12, t, intro ? 0.035 : 0.045);
+  arp(tones[ARP[sp]] + 12, t0, intro ? 0.035 : 0.045);
   if (intro || breakdown) return;
-  if (st % 2 === 0) bass(ROOTS[ch] - (st === 14 && ch === 3 ? -2 : 0), t);
-  if (st === 0 || st === 8 || (st === 10 && loop % 2 === 1)) kick(t);
-  if (st === 4 || st === 12) snare(t);
-  if (st % 2 === 0) hat(t, st === 6 || st === 14);
-  else hat(t, false);
+  if (sp % 2 === 0) bass(ROOTS[ch] + (sp === 14 && ch === 3 ? 2 : 0), t0, st);
+  if (sp === 0 || sp === 8 || (sp === 10 && loop % 2 === 1)) kick(t0);
+  if (sp === 4 || sp === 12) snare(t0);
+  hat(t0, sp === 6 || sp === 14);
   if (loop % 4 >= 2) {
-    const pos = (bar % 4) * 16 + st;
-    for (const n of MELODY) if (n[0] === pos) lead(n[1], t, n[2] * STEP);
+    const pos = (bar % 4) * 16 + sp;
+    for (const n of MELODY) if (n[0] === pos) lead(n[1], t0, n[2] * st);
   }
 }
 
 function schedule() {
   if (!actx || actx.state !== "running") return;
   if (nextT < actx.currentTime) nextT = actx.currentTime + 0.05;
+  const st = STEP / tempo;
   while (nextT < actx.currentTime + 0.15) {
-    playStep(step, nextT);
-    nextT += STEP;
+    playStep(step, nextT, st);
+    nextT += st;
     step++;
   }
 }
 
+function sfxNoise(t0, dur, type, freq, peak, attack) {
+  const n = noise(t0, dur);
+  const f = actx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+  const e = actx.createGain();
+  e.gain.setValueAtTime(0, t0); e.gain.linearRampToValueAtTime(peak, t0 + attack); e.gain.linearRampToValueAtTime(0, t0 + dur);
+  n.connect(f); f.connect(e); e.connect(master);
+  return f;
+}
+
+function sfxTone(type, f0, f1, t0, dur, peak) {
+  const o = osc(type, f0, t0, t0 + dur);
+  if (f1) o.frequency.exponentialRampToValueAtTime(f1, t0 + dur * 0.9);
+  const e = actx.createGain();
+  e.gain.setValueAtTime(0.0001, t0); e.gain.exponentialRampToValueAtTime(peak, t0 + 0.01); e.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(e); e.connect(master);
+  return o;
+}
+
+const sfxOn = () => actx && !muted;
+
 function sfxLighter() {
-  if (!actx || muted) return;
-  const t = actx.currentTime;
-  for (const d of [0, 0.09]) {
-    const n = noise(t + d, 0.04);
-    const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 3000;
-    const e = actx.createGain(); e.gain.setValueAtTime(0.25, t + d); e.gain.exponentialRampToValueAtTime(0.001, t + d + 0.035);
-    n.connect(hp); hp.connect(e); e.connect(master);
-  }
-  const n = noise(t + 0.1, 0.6);
-  const bp = actx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 500;
-  const e = actx.createGain(); e.gain.setValueAtTime(0, t + 0.1); e.gain.linearRampToValueAtTime(0.12, t + 0.2); e.gain.linearRampToValueAtTime(0, t + 0.6);
-  n.connect(bp); bp.connect(e); e.connect(master);
+  if (!sfxOn()) return;
+  const t0 = actx.currentTime;
+  sfxNoise(t0, 0.04, "highpass", 3000, 0.25, 0.002);
+  sfxNoise(t0 + 0.09, 0.04, "highpass", 3000, 0.25, 0.002);
+  sfxNoise(t0 + 0.1, 0.6, "bandpass", 500, 0.12, 0.1);
 }
 
 function sfxExhale(big) {
-  if (!actx || muted) return;
-  const t = actx.currentTime, dur = big ? 1.4 : 1.0;
-  const n = noise(t, dur);
-  const lp = actx.createBiquadFilter(); lp.type = "lowpass";
-  lp.frequency.setValueAtTime(1400, t); lp.frequency.linearRampToValueAtTime(500, t + dur);
-  const e = actx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(big ? 0.22 : 0.15, t + 0.12); e.gain.linearRampToValueAtTime(0, t + dur);
-  n.connect(lp); lp.connect(e); e.connect(master);
+  if (!sfxOn()) return;
+  const t0 = actx.currentTime, dur = big ? 1.4 : 1.0;
+  sfxNoise(t0, dur, "lowpass", 1400, big ? 0.22 : 0.15, 0.12).frequency.linearRampToValueAtTime(500, t0 + dur);
 }
+
+function sfxOpen() {
+  if (!sfxOn()) return;
+  const t0 = actx.currentTime;
+  sfxTone("sine", 900, 250, t0, 0.08, 0.25);
+  sfxNoise(t0 + 0.02, 0.45, "highpass", 2500, 0.18, 0.01).frequency.linearRampToValueAtTime(5000, t0 + 0.4);
+}
+
+function sfxGlug() { if (sfxOn()) sfxTone("sine", 230, 110, actx.currentTime, 0.13, 0.3); }
+
+function sfxBurp() {
+  if (!sfxOn()) return;
+  const t0 = actx.currentTime, dur = 0.55;
+  const o = osc("sawtooth", 85, t0, t0 + dur);
+  o.frequency.linearRampToValueAtTime(65, t0 + dur);
+  const am = osc("sine", 28, t0, t0 + dur), amg = actx.createGain(); amg.gain.value = 0.5;
+  const f = actx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 450; f.Q.value = 2;
+  const e = actx.createGain();
+  e.gain.setValueAtTime(0, t0); e.gain.linearRampToValueAtTime(0.5, t0 + 0.05); e.gain.linearRampToValueAtTime(0, t0 + dur);
+  am.connect(amg); amg.connect(e.gain);
+  o.connect(f); f.connect(e); e.connect(master);
+}
+
+function sfxHonk() {
+  if (!sfxOn()) return;
+  const t0 = actx.currentTime;
+  for (const d of [0, 0.4]) { sfxTone("square", 392, 0, t0 + d, 0.3, 0.12); sfxTone("square", 494, 0, t0 + d, 0.3, 0.1); }
+}
+
+function sfxClunk() {
+  if (!sfxOn()) return;
+  const t0 = actx.currentTime;
+  sfxTone("sine", 140, 45, t0, 0.3, 0.6);
+  sfxNoise(t0, 0.25, "lowpass", 900, 0.4, 0.005);
+  sfxNoise(t0 + 0.05, 0.2, "bandpass", 3000, 0.15, 0.005);
+}
+
+function sfxScrape() { if (sfxOn()) sfxNoise(actx.currentTime, 0.2, "bandpass", 2200 + Math.random() * 1500, 0.07, 0.03); }
 
 function toggleMute() {
   muted = !muted;
