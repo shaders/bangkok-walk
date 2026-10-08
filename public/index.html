@@ -39,7 +39,7 @@ let px = 0, camX = 0, phase = 0, amp = 0, bob = 0, speed = 0, drive = 0, everHel
 let sx = -ROPE, wheelRot = 0, sFace = 1, handX = 0, handY = 0;
 let scooterDown = false, sRot = 0, downSince = 0, liftT = -1, sparkT = 0, scrapeT = 0;
 let hasCig = false, lit = false, cigLen = 0, emberGlow = 0.35, lightT = -1, dragT = -1, idleSmoke = 0, nextDragAt = 0;
-let hasBeer = false, opened = false, beerLevel = 0, openT = -1, sipT = -1, nextSipAt = 0;
+let hasBeer = false, opened = false, beerLevel = 0, openT = -1, sipT = -1, nextSipAt = 0, drinkKind = "chang", yaPending = false, yadongs = 0, trip = 0, blurAmt = 0;
 let cigs = 0, beers = 0, meters = 0, drunk = 0;
 let stopUntil = 0, nextActionAt = 1e9, redHold = 0, jayUntil = 0;
 let bubbleText = "", bubbleUntil = 0;
@@ -295,7 +295,7 @@ function puff(n) {
 function say(s, dur) { bubbleText = s; bubbleUntil = t + dur; }
 
 function startSmoke() { lightT = 0; nextDragAt = t + 4.5; }
-function startBeer() { openT = 0; hasBeer = true; opened = false; beerLevel = 1; nextSipAt = t + 1.5; }
+function startBeer(kind) { drinkKind = kind || "chang"; openT = 0; hasBeer = true; opened = false; beerLevel = 1; nextSipAt = t + 1.5; if (drinkKind === "yadong") say(["ยาดองมาแล้ว!", "я-донг подъехал!"], 2); }
 
 function flick() {
   hasCig = false; lit = false;
@@ -400,7 +400,8 @@ function update(dt) {
     }
   }
   if (holding && t > nextActionAt && t > stopUntil) {
-    if (!hasCig && lightT < 0 && (hasBeer || Math.random() < 0.55)) startSmoke();
+    if (yaPending && !hasBeer) { yaPending = false; startBeer("yadong"); }
+    else if (!hasCig && lightT < 0 && (hasBeer || Math.random() < 0.55)) startSmoke();
     else if (!hasBeer) startBeer();
     nextActionAt = t + 25 + Math.random() * 20;
   }
@@ -448,18 +449,30 @@ function update(dt) {
     const prev = sipT;
     sipT += dt;
     for (const g of [0.55, 0.85, 1.15]) if (prev < g && sipT >= g) sfxGlug();
-    if (sipT > 0.35 && sipT < 1.3) { beerLevel -= dt * 0.2; drunk += dt * 0.16; }
+    if (sipT > 0.35 && sipT < 1.3) { beerLevel -= dt * (drinkKind === "yadong" ? 0.55 : 0.2); drunk += dt * 0.16; }
     if (sipT > 1.7) {
       sipT = -1;
       if (beerLevel <= 0.05) {
-        hasBeer = false; opened = false; beers++;
-        bottles.push(px + 0.05);
+        hasBeer = false; opened = false;
+        bottles.push({ x: px + 0.05, k: drinkKind });
+        if (drinkKind === "chang") {
+          beers++;
+          if (beers % 3 === 0) { yaPending = true; nextActionAt = Math.min(nextActionAt, t + 4); }
+        } else {
+          yadongs++; trip = 1; blurAmt = 1;
+          setTimeout(() => say(["โลกหมุน...", "мир крутится..."], 2.5), 2500);
+        }
         if (bottles.length > 40) bottles.shift();
         if (Math.random() < 0.6) setTimeout(() => { sfxBurp(); say(["เอิ๊ก", "*рыг*"], 1.5); }, 500);
       }
     }
   }
   drunk = Math.max(0, drunk - dt * 0.012);
+  blurAmt = Math.max(0, blurAmt - dt / 8);
+  if (trip > 0) {
+    trip = Math.max(0, trip - dt / 40);
+    if (trip > 0.2 && t > bubbleUntil + 6 && Math.random() < dt / 8) say(pick([["เห็นช้างสีชมพู", "вижу розового слона"], ["ตึกมันเต้น", "дома танцуют"], ["สวยจัง...", "красиво-то как..."], ["กูอยู่ไหนวะ", "я где, блядь"]], Math.random()), 2.5);
+  }
 
   for (let i = parts.length - 1; i >= 0; i--) {
     const q = parts[i];
@@ -510,8 +523,11 @@ function frame(ts) {
   drawDude();
   drawRope();
   drawParts();
+  if (trip > 0.3) pinkElephant(W * 0.55 + sin(t * 0.35) * W * 0.25, -OY * 0.5 + 0.14 * H + sin(t * 0.9) * 0.03 * H, 0.18 * H * Math.min(1, (trip - 0.3) * 4));
   drawDudeBubble();
   cv.restore();
+  if (trip > 0.02) tripFx(trip * 0.7);
+  if (blurAmt > 0.01) blurFx(smooth(blurAmt));
   const v = cv.createRadialGradient(SW / 2, SH / 2, 0, SW / 2, SH / 2, Math.max(SW, SH) * 0.75);
   v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(0.6, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.55)");
   cv.fillStyle = v; cv.fillRect(0, 0, SW, SH);
@@ -1067,7 +1083,8 @@ function bSathorn(x0, w, i, topLimit) {
       rrect(x0 + 0.06 * w, 0.27 * H, x0 + 0.94 * w, 0.33 * H, 0.01 * H, 0xFF1E3A2A);
       cv.font = "italic 600 " + (0.045 * H).toFixed(1) + "px Georgia, 'Times New Roman', serif";
       cv.textAlign = "center"; cv.fillStyle = "#F0D080"; cv.shadowColor = "#FFC060"; cv.shadowBlur = 0.015 * H;
-      cv.fillText("Mimosa", x0 + w / 2, 0.316 * H); cv.shadowBlur = 0; cv.shadowColor = "transparent";
+      cv.fillText("Mimosa", x0 + w / 2, 0.31 * H); cv.shadowBlur = 0; cv.shadowColor = "transparent";
+      text("ITALIAN · MEDITERRANEAN", x0 + w / 2, 0.326 * H, 0.012 * H, 0xFFE8D8A0);
     }
     for (const px2 of [x0 + 0.03 * H, x0 + w - 0.03 * H]) { rect(px2 - 0.015 * H, 0.57 * H, px2 + 0.015 * H, 0.6 * H, 0xFF6A4A2A); circle(px2, 0.555 * H, 0.03 * H, 0xFF2C5F35); }
   } else {
@@ -1138,11 +1155,12 @@ function evMimosa(cx, j, lt) {
       figure(tx + (s ? 0.1 : -0.1) * U, G, S, P, s ? -1 : 1, 0xFFE8D0B8, { shirt: pick([0xFFF0F0F0, 0xFF2A2A40, 0xFFC86A8A, 0xFF5A8AC8], rnd(j * 4 + tb * 2 + s, 330)) });
     }
     if (clink) { glow(tx, G - S * 0.6, 0.02 * U, 0xFFFFFFFF, 220); text("✦", tx, G - S * 0.7, 0.025 * U, 0xFFFFF0B0); }
+    if (tb === 1) { oval(tx - 0.03 * U, G - 0.02 * U, tx + 0.03 * U, G, 0xFFE8D8C0); circle(tx + 0.032 * U, G - 0.015 * U, 0.012 * U, 0xFFE8D8C0); line(tx - 0.03 * U, G - 0.012 * U, tx - 0.045 * U, G - 0.02 * U + sin(lt * 9) * 0.006 * U, 0xFFE8D8C0, 0.005 * U); }
   }
   const wxp = cx + sin(lt * 0.6) * 0.3 * U, wdir = cos(lt * 0.6) > 0 ? 1 : -1;
   const P = walkP(lt * 5, false); P[7] = 2.0; P[8] = 1.0;
   figure(wxp, G + 0.01 * U, S, P, wdir, 0xFFD8B898, { shirt: 0xFF111111 });
-  if (mod(lt, 8) < 2.5) bubble(cx, G - S * 1.3, ["อร่อยมาก!", "охуенно вкусно!"], 0.026 * H, 1);
+  if (mod(lt, 8) < 2.5) bubble(cx, G - S * 1.3, mod(lt, 16) < 8 ? ["อร่อยมาก!", "охуенно вкусно!"] : ["Truffle pizza!", "пицца с трюфелем!"], 0.026 * H, 1);
 }
 
 function evWok(cx, j, lt) {
@@ -1730,10 +1748,11 @@ function chang(level, cap) {
 
 function drawBottles() {
   const k = H * CH * 0.85;
-  for (const bx of bottles) {
+  for (const bo of bottles) {
+    const bx = bo.x;
     const x = (bx - camX) * H;
     if (x < -50 || x > W + 50) continue;
-    cv.save(); cv.translate(x, (FY + 0.005 + (onStep(bx) ? -0.02 : 0)) * H - 0.075 * k); cv.scale(k, k); chang(0, false); cv.restore();
+    cv.save(); cv.translate(x, (FY + 0.005 + (onStep(bx) ? -0.02 : 0)) * H - 0.075 * k); cv.scale(k, k); if (bo.k === "yadong") yadongBottle(0, false); else chang(0, false); cv.restore();
   }
 }
 
@@ -1867,7 +1886,7 @@ function drawDude() {
   stroke(0xFFF2C200, 0.07);
   cv.beginPath(); cv.moveTo(fsx, fsy); cv.lineTo(elx, ely); cv.lineTo(hx, hy); cv.stroke();
   if (hasBeer) {
-    cv.save(); cv.translate(hx, hy); cv.rotate(theta); cv.scale(0.85, 0.85); chang(beerLevel, !opened); cv.restore();
+    cv.save(); cv.translate(hx, hy); cv.rotate(theta); cv.scale(0.85, 0.85); if (drinkKind === "yadong") yadongBottle(beerLevel, !opened); else chang(beerLevel, !opened); cv.restore();
   }
   circle(hx, hy, 0.03, 0xFFB07850);
   if (lightT > 0.4 && lightT < 1.05) {
@@ -1910,8 +1929,8 @@ function drawHud() {
   const clock = String(((m / 60) | 0) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
   text("Бангкок · " + districtName(camX * FAC + (px - camX)) + " · " + clock, 0.04 * hs, 0.07 * hs, 0.042 * hs, 0xFFFFFFFF, "left", sh);
   text("Пройдено: " + (meters | 0) + " м", 0.04 * hs, 0.115 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
-  text("Скурено: " + cigs + " · Выпито чанги: " + beers, 0.04 * hs, 0.155 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
-  const st = drunk < 0.5 ? "трезвый" : drunk < 1.5 ? "навеселе" : drunk < 2.5 ? "хорошо так" : "в говно";
+  text("Скурено: " + cigs + " · Чанга: " + beers + (yadongs ? " · Я-донг: " + yadongs : ""), 0.04 * hs, 0.155 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
+  const st = trip > 0.15 ? "в улёте 🌀" : drunk < 0.5 ? "трезвый" : drunk < 1.5 ? "навеселе" : drunk < 2.5 ? "хорошо так" : "в говно";
   text("Состояние: " + st, 0.04 * hs, 0.195 * hs, 0.034 * hs, drunk < 1.5 ? 0xFFDDDDDD : 0xFFFFC070, "left", sh);
 
   const mb = muteBtn();
@@ -1923,6 +1942,59 @@ function drawHud() {
     text("зажми экран — и пошёл", SW / 2, OY + H * 0.3, 0.05 * hs, withA(0xFFFFFF, a), "center", [0xFF000000, 0.01 * hs, 0.004 * hs]);
   }
   if (DEBUG) text("audio: " + (actx ? actx.state : "none") + " step " + step + " session " + (navigator.audioSession ? navigator.audioSession.type : "n/a") + " drive " + drive.toFixed(2), SW / 2, SH - 0.02 * SH, 0.03 * hs, 0xFFFFFF00);
+}
+
+
+function yadongBottle(level, cap) {
+  rrect(-0.022, -0.04, 0.022, 0.06, 0.008, 0xCC6A3A10);
+  if (level > 0) rect(-0.017, 0.055 - 0.09 * level, 0.017, 0.055, 0xCCB8661A);
+  rect(-0.008, -0.08, 0.008, -0.04, 0xCC6A3A10);
+  if (cap) rect(-0.01, -0.09, 0.01, -0.078, 0xFFC81E1E);
+  rect(-0.022, -0.01, 0.022, 0.03, 0xFFE8D040);
+  rect(-0.022, 0.005, 0.022, 0.015, 0xFFC81E1E);
+}
+
+function pinkElephant(x, y, s) {
+  if (s <= 0) return;
+  cv.save(); cv.translate(x, y); cv.scale(s, s); cv.rotate(sin(t * 0.7) * 0.15);
+  const pk = 0xEEFF8AD0, dk = 0xEEE060B0;
+  for (const lx of [-0.25, 0.18]) line(lx, -0.35, lx + sin(t * 3) * 0.05, -0.05, dk, 0.1);
+  oval(-0.4, -0.72, 0.3, -0.25, pk);
+  circle(0.32, -0.6, 0.17, pk);
+  stroke(pk, 0.08); cv.beginPath(); cv.moveTo(0.42, -0.55); cv.quadraticCurveTo(0.6, -0.3, 0.5 + sin(t * 2) * 0.08, -0.1); cv.stroke();
+  oval(0.13, -0.78, 0.33, -0.45, dk);
+  circle(0.37, -0.64, 0.02, 0xFF111111);
+  for (const [wx2, a] of [[-0.1, -1], [0.1, 1]]) { fill(0xCCFFFFFF); cv.beginPath(); cv.ellipse(wx2, -0.8, 0.18, 0.07, a * 0.5 + sin(t * 8) * 0.3, 0, PI * 2); cv.fill(); }
+  cv.restore();
+}
+
+let blurCv = null;
+function blurFx(b) {
+  if (!blurCv) blurCv = document.createElement("canvas");
+  const ow = Math.max(8, Math.round(cvs.width / 14)), oh = Math.max(8, Math.round(cvs.height / 14));
+  if (blurCv.width !== ow || blurCv.height !== oh) { blurCv.width = ow; blurCv.height = oh; }
+  const bx = blurCv.getContext("2d");
+  bx.imageSmoothingEnabled = true;
+  bx.drawImage(cvs, 0, 0, ow, oh);
+  cv.imageSmoothingEnabled = true;
+  cv.globalAlpha = 0.9 * b;
+  cv.drawImage(blurCv, 0, 0, ow, oh, 0, 0, SW, SH);
+  cv.globalAlpha = 1;
+}
+
+function tripFx(a) {
+  const n = 18, sh = SH / n;
+  for (let i = 0; i < n; i++) {
+    const dx = sin(t * 2.2 + i * 0.6) * a * 0.025 * SW;
+    cv.drawImage(cvs, 0, i * sh * dpr, cvs.width, sh * dpr, dx, i * sh, SW, sh + 1);
+  }
+  cv.globalAlpha = 0.3 * a;
+  cv.drawImage(cvs, 0, 0, cvs.width, cvs.height, sin(t * 1.3) * 0.03 * SW * a, cos(t * 1.1) * 0.012 * SH * a, SW, SH);
+  cv.globalAlpha = 1;
+  cv.globalCompositeOperation = "overlay";
+  cv.fillStyle = "hsla(" + mod(t * 50, 360).toFixed(0) + ",90%,55%," + (0.4 * a).toFixed(3) + ")";
+  cv.fillRect(0, 0, SW, SH);
+  cv.globalCompositeOperation = "source-over";
 }
 
 // ---------------------------------------------------------------- music
@@ -2017,7 +2089,7 @@ function initAudio() {
 
 function updateMusic(holding) {
   tempo = holding ? 1 : 0.42 + 0.58 * drive;
-  pitchMul = holding ? 1 : 0.7 + 0.3 * drive;
+  pitchMul = (holding ? 1 : 0.7 + 0.3 * drive) * (1 + 0.035 * sin(t * 0.8) * trip);
   if (toneF) toneF.frequency.setTargetAtTime(holding ? 9000 : 700 + 8300 * drive * drive, actx.currentTime, holding ? 0.02 : 0.15);
 }
 
