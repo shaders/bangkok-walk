@@ -635,10 +635,43 @@ function groundFloor(bx, bw, i) {
   line(bx, 0.64 * H, bx + bw, 0.64 * H, 0xFF6A6A70, 0.004 * H);
 }
 
+function loveWindow(x0, y0, ww, wh, id) {
+  const lt = mod(t + rnd(id, 119) * 12, 12), cx = x0 + ww / 2;
+  const shake = lt > 3.5 && lt < 10.5 ? sin(t * 15) * 0.0025 * H : 0;
+  rect(x0 + shake, y0, x0 + ww + shake, y0 + wh, 0xFFFF6A8A);
+  glow(cx, y0 + wh / 2, ww * 1.3, 0xFFFF4A7A, 80);
+  cv.save(); cv.beginPath(); cv.rect(x0 + shake, y0, ww, wh); cv.clip();
+  if (lt < 3.5) {
+    const lean = 0.25 + 0.1 * sin(lt * 2), s = wh * 0.95, gy = y0 + wh * 1.02;
+    figure(cx - ww * 0.14, gy, s, [lean, 0, 0, 0, 0, 1.3, 0.8, 1.4, 0.6, 0, 0, 0.1], 1, 0xEE1A0A10);
+    figure(cx + ww * 0.14, gy, s, [lean, 0, 0, 0, 0, 1.3, 0.8, 1.4, 0.6, 0, 0, 0.1], -1, 0xEE1A0A10, { hair: 0xEE1A0A10 });
+  }
+  cv.restore();
+  const close = smooth((lt - 3) / 0.6) * (1 - smooth((lt - 11) / 0.6));
+  if (close > 0) {
+    const cw = ww / 2 * close;
+    rect(x0 + shake, y0, x0 + cw + shake, y0 + wh, 0xFFB0204A);
+    rect(x0 + ww - cw + shake, y0, x0 + ww + shake, y0 + wh, 0xFFB0204A);
+  }
+  stroke(0xFF1A1014, 0.004 * H); cv.strokeRect(x0 + shake, y0, ww, wh);
+  if (lt > 4 && lt < 10.5) {
+    for (let k = 0; k < 3; k++) {
+      const m = mod(lt * 0.5 + k / 3, 1);
+      text("♥", cx + sin(m * 6 + k) * 0.02 * H, y0 - m * 0.06 * H, 0.022 * H, withA(0xFFFF5A8A, 255 * (1 - m)));
+    }
+    if (mod(lt, 2.2) < 0.9) text("อ๊ะ!", cx + 0.05 * H, y0 + 0.02 * H, 0.018 * H, 0xFFFFFFFF, "center", [0xFF000000, 0.004 * H]);
+  }
+  if (lt > 7.5 && lt < 9.5) {
+    text("ตึง! ตึง!", cx, y0 - 0.075 * H, 0.016 * H, 0xFFFFE070, "center", [0xFF000000, 0.004 * H]);
+    text("เบาๆ หน่อย!", cx, y0 - 0.095 * H, 0.016 * H, 0xFFFFFFFF, "center", [0xFF000000, 0.004 * H]);
+  }
+}
+
 function floorWindow(cx, fy, id) {
   const ww = 0.075 * H, wh = 0.085 * H, x0 = cx - ww / 2, y0 = (fy + 0.035) * H;
   const r = rnd(id, 110);
   if (r < 0.45) { rect(x0, y0, x0 + ww, y0 + wh, 0xFF141820); return; }
+  if (rnd(id, 118) > 0.93) { loveWindow(x0, y0, ww, wh, id); return; }
   const tv = r > 0.88;
   const lc = tv ? (sin(t * 9 + id) > 0.3 ? 0xFF6A9AE8 : 0xFF4A70C0) : (rnd(id, 111) > 0.3 ? 0xFFE8B868 : 0xFFE88A9A);
   rect(x0, y0, x0 + ww, y0 + wh, lc);
