@@ -93,7 +93,8 @@ function oval(l, tt, r, b, c) {
 function circle(x, y, r, c) { fill(c); cv.beginPath(); cv.arc(x, y, Math.abs(r), 0, PI * 2); cv.fill(); }
 function line(x0, y0, x1, y1, c, w) { stroke(c, w); cv.beginPath(); cv.moveTo(x0, y0); cv.lineTo(x1, y1); cv.stroke(); }
 function glow(x, y, r, c, alpha) {
-  if (r <= 0 || alpha <= 0) return;
+  alpha = Math.min(255, alpha * TOD.glow);
+  if (r <= 0 || alpha < 1) return;
   const g = cv.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, css(withA(c, alpha)));
   g.addColorStop(1, css(withA(c, 0)));
@@ -140,6 +141,68 @@ function onStep(x) {
   const s = Math.floor((x - 12) / STEPGAP);
   for (const k of [s - 1, s, s + 1]) { const xs = stepX(k); if (validStep(k) && x >= xs && x <= xs + 0.5) return true; }
   return false;
+}
+
+
+// ---------------------------------------------------------------- time of day
+
+const START_MIN = (() => { const m = /[?&]time=(\d{1,2}):?(\d{2})/.exec(location.search); return m ? (+m[1]) * 60 + (+m[2]) : 23 * 60 + 47; })();
+const gameMin = () => mod(START_MIN + t / 2, 1440);
+const TOD_STATES = {
+  night: { sky: [0x07040F, 0x1A0C2E, 0x52182E], ov: [0, 0, 0, 0], ov2: [0, 0, 0, 0], glow: 1, day: 0 },
+  dawn: { sky: [0x2A3A78, 0xC8709A, 0xFFB070], ov: [255, 150, 120, 0.18], ov2: [255, 170, 110, 0.35], glow: 0.6, day: 0.5 },
+  day: { sky: [0x2E7AD8, 0x7AB8EE, 0xCFE6F6], ov: [120, 150, 185, 0.28], ov2: [255, 240, 205, 0.5], glow: 0.25, day: 1 },
+  dusk: { sky: [0x2A1A4A, 0xC8506A, 0xFF9A40], ov: [255, 120, 70, 0.16], ov2: [255, 140, 70, 0.4], glow: 0.7, day: 0.4 },
+};
+const TOD_KEYS = [[0, "night"], [300, "night"], [370, "dawn"], [450, "day"], [1050, "day"], [1130, "dusk"], [1220, "night"], [1440, "night"]];
+let TOD = { sky: TOD_STATES.night.sky, ov: [0, 0, 0, 0], ov2: [0, 0, 0, 0], glow: 1, day: 0 }, morningSaid = -1;
+
+function lerpRGB(a, b, k) {
+  const r = lerp((a >> 16) & 255, (b >> 16) & 255, k), g = lerp((a >> 8) & 255, (b >> 8) & 255, k), bb = lerp(a & 255, b & 255, k);
+  return ((r | 0) << 16) | ((g | 0) << 8) | (bb | 0);
+}
+const hex = c => "#" + (c & 0xFFFFFF).toString(16).padStart(6, "0");
+
+function updateTod() {
+  const m = gameMin();
+  let i = 0;
+  while (i < TOD_KEYS.length - 2 && m >= TOD_KEYS[i + 1][0]) i++;
+  const [m0, a] = TOD_KEYS[i], [m1, b] = TOD_KEYS[i + 1], k = smooth((m - m0) / Math.max(1, m1 - m0));
+  const A = TOD_STATES[a], B = TOD_STATES[b];
+  TOD = {
+    sky: A.sky.map((c, j) => lerpRGB(c, B.sky[j], k)),
+    ov: A.ov.map((v, j) => lerp(v, B.ov[j], k)), ov2: A.ov2.map((v, j) => lerp(v, B.ov2[j], k)),
+    glow: lerp(A.glow, B.glow, k), day: lerp(A.day, B.day, k),
+  };
+  const dayN = Math.floor((START_MIN + t / 2) / 1440);
+  if (m > 345 && m < 400 && morningSaid !== dayN && everHeld) { morningSaid = dayN; say(["เช้าแล้ว", "уже утро, блядь"], 3); }
+}
+
+function drawCelestial() {
+  const m = gameMin();
+  const sunK = (m - 345) / (1140 - 345);
+  if (sunK > -0.05 && sunK < 1.05) {
+    const sxp = W * lerp(0.08, 0.92, sunK), syp = OY * 0.3 + H * (0.5 - 0.42 * sin(clamp01(sunK) * PI));
+    glow(sxp, syp, H * 0.22, 0xFFFFE8A0, 120 / Math.max(0.25, TOD.glow));
+    circle(sxp, syp, H * 0.04, lerpRGB(0xFF8A40, 0xFFF8D8, sin(clamp01(sunK) * PI)) | 0xFF000000);
+  }
+  const moonA = 1 - clamp01(TOD.day * 2);
+  if (moonA > 0) {
+    cv.globalAlpha = moonA;
+    glow(W * 0.8, H * 0.08, H * 0.1, 0xFFFFE6C8, 45);
+    circle(W * 0.8, H * 0.08, H * 0.025, 0xFFE8DCC8);
+    cv.globalAlpha = 1;
+  }
+}
+
+function todOverlay() {
+  for (const [op, c] of [["screen", TOD.ov], ["overlay", TOD.ov2]]) {
+    if (c[3] <= 0.01) continue;
+    cv.globalCompositeOperation = op;
+    cv.fillStyle = "rgba(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + "," + c[3].toFixed(3) + ")";
+    cv.fillRect(0, 0, SW, SH);
+  }
+  cv.globalCompositeOperation = "source-over";
 }
 
 // ---------------------------------------------------------------- stickmen
@@ -498,6 +561,7 @@ function update(dt) {
   }
 
   updateSeller(dt, holding);
+  updateTod();
   updateMusic(holding);
 }
 
@@ -536,10 +600,11 @@ function frame(ts) {
   if (trip > 0.3) pinkElephant(W * 0.55 + sin(t * 0.35) * W * 0.25, -OY * 0.5 + 0.14 * H + sin(t * 0.9) * 0.03 * H, 0.18 * H * Math.min(1, (trip - 0.3) * 4));
   drawDudeBubble();
   cv.restore();
+  todOverlay();
   if (trip > 0.02) tripFx(trip * 0.7);
   if (blurAmt > 0.01) blurFx(smooth(blurAmt));
   const v = cv.createRadialGradient(SW / 2, SH / 2, 0, SW / 2, SH / 2, Math.max(SW, SH) * 0.75);
-  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(0.6, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.55)");
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(0.6, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0," + (0.55 * (1 - 0.6 * TOD.day)).toFixed(2) + ")");
   cv.fillStyle = v; cv.fillRect(0, 0, SW, SH);
   drawHud();
   requestAnimationFrame(frame);
@@ -547,10 +612,9 @@ function frame(ts) {
 
 function drawSky() {
   const g = cv.createLinearGradient(0, 0, 0, OY + H * 0.5);
-  g.addColorStop(0, "#07040F"); g.addColorStop(0.6, "#1A0C2E"); g.addColorStop(1, "#52182E");
+  g.addColorStop(0, hex(TOD.sky[0])); g.addColorStop(0.6, hex(TOD.sky[1])); g.addColorStop(1, hex(TOD.sky[2]));
   cv.fillStyle = g; cv.fillRect(0, 0, SW, OY + H * 0.62);
-  glow(W * 0.8, H * 0.08, H * 0.1, 0xFFFFE6C8, 45);
-  circle(W * 0.8, H * 0.08, H * 0.025, 0xFFE8DCC8);
+  drawCelestial();
 }
 
 function drawSkyline() {
@@ -560,14 +624,14 @@ function drawSkyline() {
     const x0 = (i * slot - off) * H, w = (0.10 + rnd(i, 1) * 0.07) * H;
     const h = (0.2 + rnd(i, 2) * (0.4 - top0 * 0.8)) * H;
     const top = 0.5 * H - h, r3 = rnd(i, 3);
-    fill(0xFF000000 | ((20 + (r3 * 16 | 0)) << 16) | ((16 + (r3 * 10 | 0)) << 8) | (36 + (r3 * 22 | 0)));
+    fill(0xFF000000 | lerpRGB(((20 + (r3 * 16 | 0)) << 16) | ((16 + (r3 * 10 | 0)) << 8) | (36 + (r3 * 22 | 0)), lerpRGB(0x7A8CA8, 0x9AA6B8, r3), TOD.day * 0.75));
     cv.fillRect(x0, top, w, 0.5 * H - top);
     let col = 0;
     for (let cx = x0 + 0.012 * H; cx < x0 + w - 0.012 * H; cx += 0.018 * H, col++) {
       let row = 0;
       for (let cy = top + 0.015 * H; cy < 0.48 * H; cy += 0.026 * H, row++) {
         const r = rnd(i * 131 + col, row);
-        if (r > 0.6) rect(cx, cy, cx + 0.008 * H, cy + 0.012 * H, r > 0.9 ? 0x8896E6FF : 0x88FFD28C);
+        if (r > 0.6 + 0.38 * TOD.day) rect(cx, cy, cx + 0.008 * H, cy + 0.012 * H, r > 0.9 ? 0x8896E6FF : 0x88FFD28C);
       }
     }
     if (rnd(i, 4) > 0.7) line(x0, top, x0 + w, top, withA(pick(NEON, rnd(i, 8)), 150 + 80 * sin(t * 1.5 + i)), 0.004 * H);
@@ -672,7 +736,7 @@ function loveWindow(x0, y0, ww, wh, id) {
 function floorWindow(cx, fy, id) {
   const ww = 0.075 * H, wh = 0.085 * H, x0 = cx - ww / 2, y0 = (fy + 0.035) * H;
   const r = rnd(id, 110);
-  if (r < 0.45) { rect(x0, y0, x0 + ww, y0 + wh, 0xFF141820); return; }
+  if (r < 0.45 + 0.42 * TOD.day) { rect(x0, y0, x0 + ww, y0 + wh, 0xFF000000 | lerpRGB(0x141820, 0x6A8098, TOD.day)); if (TOD.day > 0.3) line(x0 + ww * 0.2, y0 + wh * 0.8, x0 + ww * 0.7, y0 + wh * 0.15, withA(0xFFFFFF, 60 * TOD.day), 0.004 * H); return; }
   if (rnd(id, 118) > 0.93) { loveWindow(x0, y0, ww, wh, id); return; }
   const tv = r > 0.88;
   const lc = tv ? (sin(t * 9 + id) > 0.3 ? 0xFF6A9AE8 : 0xFF4A70C0) : (rnd(id, 111) > 0.3 ? 0xFFE8B868 : 0xFFE88A9A);
@@ -1479,7 +1543,7 @@ function bStation(x0, w, i, tl) {
     stroke(0xFF8A7A60, 0.012 * H); cv.beginPath(); cv.arc(cx, 0.5 * H, 0.38 * H, PI, 0); cv.stroke();
     for (const s of [-1, 1]) for (const d of [0.5, 0.7]) rect(cx + s * d * H - 0.02 * H, 0.22 * H, cx + s * d * H + 0.02 * H, 0.6 * H, 0xFFB8A888);
     circle(cx, 0.06 * H, 0.06 * H, 0xFFF0ECE0); stroke(0xFF333333, 0.004 * H); cv.beginPath(); cv.arc(cx, 0.06 * H, 0.06 * H, 0, PI * 2); cv.stroke();
-    const mins = 23 * 60 + 47 + t / 6;
+    const mins = gameMin();
     line(cx, 0.06 * H, cx + sin(mins / 720 * 2 * PI) * 0.03 * H, 0.06 * H - cos(mins / 720 * 2 * PI) * 0.03 * H, 0xFF111111, 0.006 * H);
     line(cx, 0.06 * H, cx + sin(mins / 60 * 2 * PI) * 0.045 * H, 0.06 * H - cos(mins / 60 * 2 * PI) * 0.045 * H, 0xFF111111, 0.004 * H);
     rect(cx - 0.3 * H, 0.15 * H, cx + 0.3 * H, 0.19 * H, 0xFF6A1A1A);
@@ -2495,7 +2559,7 @@ function drawDudeBubble() {
 
 function drawHud() {
   const hs = Math.min(SW, SH), sh = [0xFF000000, 0.008 * hs, 0.003 * hs];
-  const m = 23 * 60 + 47 + ((t / 6) | 0);
+  const m = Math.floor(gameMin());
   const clock = String(((m / 60) | 0) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
   text("Бангкок · " + districtName(camX * FAC + (px - camX)) + " · " + clock, 0.04 * hs, 0.07 * hs, 0.042 * hs, 0xFFFFFFFF, "left", sh);
   text("Пройдено: " + (meters | 0) + " м", 0.04 * hs, 0.115 * hs, 0.034 * hs, 0xFFDDDDDD, "left", sh);
