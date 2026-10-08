@@ -294,8 +294,8 @@ function puff(n) {
 
 function say(s, dur) { bubbleText = s; bubbleUntil = t + dur; }
 
-function startSmoke() { lightT = 0; stopUntil = Math.max(stopUntil, t + 2.2); nextDragAt = t + 4.5; }
-function startBeer() { openT = 0; hasBeer = true; opened = false; beerLevel = 1; stopUntil = Math.max(stopUntil, t + 2.4); nextSipAt = t + 1.5; }
+function startSmoke() { lightT = 0; nextDragAt = t + 4.5; }
+function startBeer() { openT = 0; hasBeer = true; opened = false; beerLevel = 1; nextSipAt = t + 1.5; }
 
 function flick() {
   hasCig = false; lit = false;
@@ -334,7 +334,7 @@ function update(dt) {
   t += dt;
   const holding = isHolding();
   if (holding) {
-    if (!everHeld) { everHeld = true; nextActionAt = t + 7; }
+    if (!everHeld) { everHeld = true; nextActionAt = t + 10; }
     drive = 1;
   } else {
     drive = Math.max(0, drive - dt / 3.5);
@@ -391,11 +391,11 @@ function update(dt) {
       const rel = eventX(j) - dX;
       if (rel > 0.05 * H && rel < 0.3 * H) {
         watched.add(j);
-        if (Math.random() < 0.8) {
-          stopUntil = t + 4.5 + Math.random() * 2.5;
-          setTimeout(() => say(pick(WOWS, Math.random()), 2.5), 1200);
-          if (!hasCig && !hasBeer && Math.random() < 0.35) Math.random() < 0.5 ? startSmoke() : startBeer();
-        }
+        const r = Math.random();
+        if (r < 0.15) {
+          stopUntil = t + 2.5 + Math.random();
+          setTimeout(() => say(pick(WOWS, Math.random()), 2.2), 600);
+        } else if (r < 0.55) say(pick(WOWS, Math.random()), 2.2);
         break;
       }
     }
@@ -403,7 +403,7 @@ function update(dt) {
   if (holding && t > nextActionAt && t > stopUntil) {
     if (!hasCig && lightT < 0 && (hasBeer || Math.random() < 0.55)) startSmoke();
     else if (!hasBeer) startBeer();
-    nextActionAt = t + 14 + Math.random() * 14;
+    nextActionAt = t + 25 + Math.random() * 20;
   }
 
   if (lightT >= 0) {
