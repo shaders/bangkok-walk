@@ -37,7 +37,7 @@ let SW, SH, W, H, OY, dpr, dudeFrac;
 let t = 0, last = 0;
 let px = 0, camX = 0, phase = 0, amp = 0, bob = 0, speed = 0, drive = 0, everHeld = false, elevD = 0;
 let sx = -ROPE, wheelRot = 0, sFace = 1, handX = 0, handY = 0;
-let scooterDown = false, sRot = 0, downSince = 0, liftT = -1, sparkT = 0, scrapeT = 0;
+let scooterDown = false, sRot = 0, downSince = 0, liftT = -1, sparkT = 0, scrapeT = 0, liftDXs = 0;
 let hasCig = false, lit = false, cigLen = 0, emberGlow = 0.35, lightT = -1, dragT = -1, idleSmoke = 0, nextDragAt = 0;
 let hasBeer = false, opened = false, beerLevel = 0, openT = -1, sipT = -1, nextSipAt = 0, drinkKind = "chang", yaPending = false, yadongs = 0, trip = 0, blurAmt = 0;
 let cigs = 0, beers = 0, meters = 0, drunk = 0;
@@ -377,13 +377,19 @@ function update(dt) {
     }
   }
   if (scooterDown && liftT < 0 && !holding && speed < 0.05 && t - downSince > 0.8) {
-    liftT = 0; say(pick(LIFTS, Math.random()), 2);
+    liftT = 0; say(pick(LIFTS, Math.random()), 3.4);
   }
   if (liftT >= 0) {
-    if (holding) liftT = -1;
-    else { liftT += dt; if (liftT > 2.0) { liftT = -1; scooterDown = false; } }
+    if (holding && liftT < 1.5) liftT = -1;
+    else {
+      liftT += dt * (holding ? 3 : 1);
+      if (liftT >= 2.5 && scooterDown) scooterDown = false;
+      if (liftT > 3.6) liftT = -1;
+    }
   }
-  const sTarget = scooterDown ? (liftT >= 0 ? 1 - smooth((liftT - 0.6) / 1.0) : 1) : 0;
+  const lp = liftPose();
+  liftDXs += ((lp ? lp.dx : 0) - liftDXs) * Math.min(1, dt * 10);
+  const sTarget = scooterDown ? (liftT >= 1.5 ? 1 - smooth((liftT - 1.5) / 1.0) : 1) : 0;
   sRot += (sTarget - sRot) * Math.min(1, dt * 9);
 
   if (holding && t > stopUntil && !blocked) {
@@ -1799,9 +1805,17 @@ function drawRope() {
   cv.beginPath(); cv.moveTo(handX, handY); cv.quadraticCurveTo((handX + ax) / 2, Math.max(handY, ay) + sag, ax, ay); cv.stroke();
 }
 
-function leg(ang) {
-  const hx = 0, hy = -0.47, fx = hx + sin(ang) * 0.44, fy = hy + cos(ang) * 0.44;
-  line(hx, hy, fx, fy, 0xFF141418, 0.085);
+function leg(ang, cr, footX) {
+  const hx = 0, hy = -0.47 + (cr || 0);
+  let fx = hx + sin(ang) * 0.44, fy = -0.47 + cos(ang) * 0.44;
+  if (cr > 0.005) {
+    fx = lerp(fx, footX, clamp01(cr * 10)); fy = 0;
+    const d = Math.hypot(fx - hx, fy - hy), h = Math.sqrt(Math.max(0, 0.22 * 0.22 - d * d / 4));
+    const mx = (hx + fx) / 2, my = (hy + fy) / 2, nx = -(fy - hy) / d, ny = (fx - hx) / d;
+    const kx = mx - nx * h, ky = my - ny * h;
+    stroke(0xFF141418, 0.085);
+    cv.beginPath(); cv.moveTo(hx, hy); cv.lineTo(kx, ky); cv.lineTo(fx, fy); cv.stroke();
+  } else line(hx, hy, fx, fy, 0xFF141418, 0.085);
   rrect(fx - 0.04, fy - 0.035, fx + 0.08, fy + 0.012, 0.022, 0xFFF4F4F0);
   circle(fx + 0.02, fy - 0.015, 0.006, 0xFFCCCCCC);
   circle(fx + 0.045, fy - 0.015, 0.006, 0xFFCCCCCC);
@@ -1816,25 +1830,62 @@ function bag() {
   rrect(0.01, 0.13, 0.05, 0.2, 0.01, 0x55C8A040);
 }
 
+function liftPose() {
+  if (liftT < 0) return null;
+  const T = liftT, dist = Math.max(0.04, px - sx - 0.15);
+  const f = T < 0.15 || T > 2.95 ? 1 : -1;
+  let dx = -dist, lean = 0, cr = 0, walk = 0, reach = 0;
+  if (T < 1.0) { dx = -dist * smooth((T - 0.3) / 0.7); walk = T > 0.3 ? 1 : 0; }
+  else if (T > 3.0) { dx = -dist * (1 - smooth((T - 3.0) / 0.6)); walk = 1; }
+  if (T >= 1.0 && T < 1.5) { const k = smooth((T - 1.0) / 0.5); lean = 1.0 * k; cr = 0.2 * k; reach = k; }
+  else if (T >= 1.5 && T < 2.5) { const k = smooth((T - 1.5) / 1.0); lean = lerp(1.0, 0.25, k); cr = lerp(0.2, 0.03, k); reach = 1; }
+  else if (T >= 2.5 && T < 2.85) { const k = smooth((T - 2.5) / 0.35); lean = 0.25 * (1 - k); cr = 0.03 * (1 - k); reach = 1 - k; }
+  return { f, dx, lean, cr, walk, reach };
+}
+
+function armIK(sx0, sy0, tx, ty, L) {
+  let dx = tx - sx0, dy = ty - sy0, d = Math.hypot(dx, dy);
+  if (d > 2 * L * 0.999) { const k = 2 * L * 0.999 / d; dx *= k; dy *= k; d = 2 * L * 0.999; }
+  const base = Math.atan2(dy, dx), a = Math.acos(clamp(d / (2 * L), -1, 1));
+  return [sx0 + cos(base - a) * L, sy0 + sin(base - a) * L, sx0 + dx, sy0 + dy];
+}
+
 function drawDude() {
-  const k = H * CH, a = sin(phase) * 0.45 * amp, L = lift();
-  const bend = liftT >= 0 ? sin(PI * clamp01(liftT / 2)) : 0;
+  const k = H * CH, L = lift(), lp = liftPose();
+  const f = lp ? lp.f : 1, lean = lp ? lp.lean : 0, cr = lp ? lp.cr : 0, reach = lp ? lp.reach : 0;
+  const a = lp && lp.walk ? sin(t * 9) * 0.4 : sin(phase) * 0.45 * amp;
+  const baseX = (px + liftDXs - camX) * H, baseY = FY * H + bob * H;
+  const toScene = (x, y) => {
+    const qx = x, qy = y + 0.47, xr = qx * cos(lean) - qy * sin(lean), yr = qx * sin(lean) + qy * cos(lean);
+    return [baseX + f * k * xr, baseY + k * (yr - 0.47 + cr)];
+  };
+  const toLocal = (X, Y) => {
+    const x0 = (X - baseX) / (f * k), y0 = (Y - baseY) / k + 0.47 - cr;
+    return [x0 * cos(lean) + y0 * sin(lean), -x0 * sin(lean) + y0 * cos(lean) - 0.47];
+  };
   cv.save();
-  cv.translate((px - camX) * H, FY * H);
-  cv.scale(k, k);
+  cv.translate(baseX, FY * H);
+  cv.scale(f * k, k);
   oval(-0.2, -0.02, 0.22, 0.025, 0x66000000);
   cv.translate(0, bob / CH);
-  if (bend > 0) { cv.translate(0, -0.47); cv.rotate(-0.5 * bend); cv.translate(0, 0.47); }
+  leg(-a, cr, -0.04); leg(a, cr, 0.06);
+  cv.translate(0, -0.47 + cr); cv.rotate(lean); cv.translate(0, 0.47);
 
-  const bsx = 0, bsy = -0.79, ba = a * 0.7 + bend * 0.8;
-  const bhx = bsx + sin(ba) * 0.36, bhy = bsy + cos(ba) * 0.36;
-  handX = (px - camX) * H + k * bhx;
-  handY = (FY + bob) * H + k * bhy;
-  line(bsx, bsy, bhx, bhy, 0xFFD4A600, 0.07);
+  const sb = scooterBump(), sTop = 1 - 0.6 * sRot;
+  const barT = toLocal((sx - camX) * H + sFace * H * SC * 0.4, FY * H + sb - H * SC * 0.7 * sTop);
+  const seatT = toLocal((sx - camX) * H - sFace * H * SC * 0.15, FY * H + sb - H * SC * 0.5 * sTop);
+  const bsx = 0, bsy = -0.79, ba = a * 0.7;
+  let bhx = bsx + sin(ba) * 0.36, bhy = bsy + cos(ba) * 0.36;
+  let bex = (bsx + bhx) / 2, bey = (bsy + bhy) / 2;
+  if (reach > 0) {
+    const [ex1, ey1, hx1, hy1] = armIK(bsx, bsy, lerp(bhx, seatT[0], reach), lerp(bhy, seatT[1], reach), 0.18);
+    bex = ex1; bey = ey1; bhx = hx1; bhy = hy1;
+  }
+  [handX, handY] = toScene(bhx, bhy);
+  stroke(0xFFD4A600, 0.07);
+  cv.beginPath(); cv.moveTo(bsx, bsy); cv.lineTo(bex, bey); cv.lineTo(bhx, bhy); cv.stroke();
   circle(bhx, bhy, 0.03, 0xFFA87048);
-  cv.save(); cv.translate(bhx, bhy); cv.rotate(-a * 0.5 + sin(t * 2) * 0.03); bag(); cv.restore();
-
-  leg(-a); leg(a);
+  cv.save(); cv.translate(bhx, bhy); cv.rotate(-a * 0.5 - lean + sin(t * 2) * 0.03); bag(); cv.restore();
 
   rrect(-0.2, -0.84, -0.04, -0.5, 0.045, 0xFF19191D);
   rrect(-0.19, -0.67, -0.07, -0.53, 0.03, 0xFF26262C);
@@ -1881,8 +1932,12 @@ function drawDude() {
     elT = [0.24, -0.66];
   }
   if (hasBeer && sipT < 0 && L === 0) { hx0 += 0.02; hy0 -= 0.02; }
-  const elx = lerp(ex0, elT[0], L), ely = lerp(ey0, elT[1], L);
-  const hx = lerp(hx0, tx, L), hy = lerp(hy0, ty, L);
+  let elx = lerp(ex0, elT[0], L), ely = lerp(ey0, elT[1], L);
+  let hx = lerp(hx0, tx, L), hy = lerp(hy0, ty, L);
+  if (reach > 0) {
+    const [ex1, ey1, hx1, hy1] = armIK(fsx, fsy, lerp(hx, barT[0], reach), lerp(hy, barT[1], reach), 0.18);
+    elx = ex1; ely = ey1; hx = hx1; hy = hy1;
+  }
   stroke(0xFFF2C200, 0.07);
   cv.beginPath(); cv.moveTo(fsx, fsy); cv.lineTo(elx, ely); cv.lineTo(hx, hy); cv.stroke();
   if (hasBeer) {
@@ -1915,8 +1970,9 @@ function drawParts() {
 }
 
 function drawDudeBubble() {
-  const x = (px - camX) * H + 0.03 * H, y = (FY + elevD - CH * 1.02) * H;
-  if (everHeld && !isHolding() && drive < 0.8) {
+  const x = (px + liftDXs - camX) * H + 0.03 * H, y = (FY + elevD - CH * 1.02) * H;
+  if (liftT >= 0 && t < bubbleUntil) bubble(x, y, bubbleText, 0.032 * H, clamp01((bubbleUntil - t) * 3));
+  else if (everHeld && !isHolding() && drive < 0.8 && liftT < 0) {
     bubble(x, y, NAGS[Math.floor(t / 3.5) % NAGS.length], 0.032 * H, clamp01((0.8 - drive) * 3));
   } else if (t < bubbleUntil) {
     bubble(x, y, bubbleText, 0.032 * H, clamp01((bubbleUntil - t) * 3));
