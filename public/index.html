@@ -2443,11 +2443,20 @@ function drawDude() {
     const [ex1, ey1, hx1, hy1] = armIK(fsx, fsy, lerp(hx, barT[0], reach), lerp(hy, barT[1], reach), 0.18);
     elx = ex1; ely = ey1; hx = hx1; hy = hy1;
   }
+  const gk = Math.max(giveK, faceK);
+  if (gk > 0) {
+    const gt = faceK > giveK ? [0.12, -0.93] : toLocal(giveX, giveY);
+    const [ex1, ey1, hx1, hy1] = armIK(fsx, fsy, lerp(hx, gt[0], gk), lerp(hy, gt[1], gk), 0.18);
+    elx = ex1; ely = ey1; hx = hx1; hy = hy1;
+  }
   stroke(0xFFF2C200, 0.07);
   cv.beginPath(); cv.moveTo(fsx, fsy); cv.lineTo(elx, ely); cv.lineTo(hx, hy); cv.stroke();
   if (hasBeer) {
     cv.save(); cv.translate(hx, hy); cv.rotate(theta); cv.scale(0.85, 0.85); if (drinkKind === "yadong") yadongBottle(beerLevel, !opened); else chang(beerLevel, !opened); cv.restore();
   }
+  if (giveHold === "bill") rect(hx - 0.01, hy - 0.015, hx + 0.05, hy + 0.015, 0xFF4AAA5A);
+  else if (giveHold) fakeItem(giveHold, hx + 0.01, hy, 1);
+  else if (faceK > 0.3 && seller && !seller.got) fakeItem("shades", hx + 0.01, hy, 1);
   circle(hx, hy, 0.03, 0xFFB07850);
   if (lightT > 0.4 && lightT < 1.05) {
     const fl = 1 + sin(t * 40) * 0.15;
@@ -2562,80 +2571,218 @@ function tripFx(a) {
 // ---------------------------------------------------------------- coat seller
 
 let seller = null, nextSellerAt = 1e9, fakes = 0, accessory = null, accUntil = 0;
+let giveK = 0, giveX = 0, giveY = 0, giveHold = null, faceK = 0;
+const COAT = 0xFFB8A070, COAT_D = 0xFF9A8458, LINING = 0xFF5A1018, SKIN_S = 0xFFC8A070, HAT = 0xFF3A2A1A;
+
+function springTo(s, key, target, dt) {
+  const v = key + "v", cur = s[v] || 0;
+  s[v] = cur + ((target - s[key]) * 140 - cur * 11) * dt;
+  s[key] += s[v] * dt;
+}
 
 function updateSeller(dt, holding) {
+  giveK = 0; giveHold = null; faceK = 0;
   if (nextSellerAt === 1e9 && everHeld) nextSellerAt = t + 40;
   if (!seller && t > nextSellerAt && holding) {
     const x = camX + W / H + 0.3;
-    if (!nearCross(x, 1.3) && !onStep(x)) seller = { x, st: "wait", o: 0, t0: t, item: Math.random() < 0.5 ? "shades" : "rolex", got: false };
+    if (!nearCross(x, 1.3) && !onStep(x)) seller = { x, st: "wait", o: 0, oL: 0, t0: t, item: Math.random() < 0.5 ? "shades" : "rolex", got: false, walk: 0, turn: 0, f: -1 };
     nextSellerAt = t + 70 + Math.random() * 70;
   }
   if (!seller) return;
   const s = seller, d = s.x - px, el = t - s.t0;
-  if (s.st === "wait" && d < 0.75) { s.st = "open"; s.t0 = t; }
-  else if (s.st === "open") {
-    if (!holding && speed < 0.15 && d > -0.1 && d < 0.7) {
-      s.st = "buy"; s.t0 = t; stopUntil = t + 3.4;
-      setTimeout(() => { if (seller && seller.st === "buy") say(["ของแท้ป่ะ?", "оригинал?"], 1.1); }, 1000);
-    } else if (d < -0.25) {
+  let oT = 0, oLT = 0;
+  if (s.st === "wait") {
+    if (d < 0.95) { s.st = "turn"; s.t0 = t; }
+  } else if (s.st === "turn") {
+    s.turn = clamp01(el / 0.3);
+    if (el > 0.3) { s.st = "open"; s.t0 = t; }
+  } else if (s.st === "open") {
+    oT = oLT = 1;
+    if (!holding && speed < 0.15 && d > 0.2 && d < 1.0) {
+      s.st = "buy"; s.t0 = t; s.ex0 = 0; stopUntil = t + 30;
+    } else if (d < 0.15) {
       s.st = "passed"; s.t0 = t;
       if (Math.random() < 0.6) setTimeout(() => say(["ไม่เอา", "не надо"], 1.5), 700);
     }
   } else if (s.st === "buy") {
-    s.x += ((px + 0.24) - s.x) * Math.min(1, dt * 3);
-    if (holding && el < 1.6) { s.st = "passed"; s.t0 = t; stopUntil = 0; }
-    else {
-      if (el > 1.6 && !s.got) { s.got = true; fakes++; accessory = s.item; accUntil = t + 150; sfxCash(); }
-      if (el > 3.3) { s.st = "leave"; s.t0 = t; say(["เท่ป่ะ?", "ну чё, стильно?"], 2); }
+    oT = 1; oLT = 1;
+    const target = s.x - 0.32;
+    if (!s.ex0) {
+      const step = SPEED * 0.9 * dt;
+      if (target - px > 0.005) { px += Math.min(step, target - px); phase += dt * 6.5; amp = Math.min(1, amp + dt * 6); }
+      else s.ex0 = t;
     }
-  } else if (s.st === "passed" && el > 2.2) { s.st = "leave"; s.t0 = t; }
-  else if (s.st === "leave") { s.x += dt * 0.35; if (el > 2.5) seller = null; }
-  if (seller) {
-    const open = s.st === "open" || s.st === "buy" || (s.st === "passed" && el < 1.2);
-    s.o += ((open ? 1 : 0) - s.o) * Math.min(1, dt * 5);
+    const e = s.ex0 ? t - s.ex0 : -1;
+    if (holding && e < 1.65) { s.st = "passed"; s.t0 = t; stopUntil = 0; }
+    else if (e >= 0) {
+      const ex = ((px - camX) * H + (s.x - camX) * H) / 2, ey = (FY - 0.6 * CH) * H;
+      giveX = ex; giveY = ey;
+      giveK = e < 1.9 ? smooth(e / 0.4) : 1 - smooth((e - 1.9) / 0.35);
+      if (e < 0.85) giveHold = "bill";
+      else if (e > 1.65 && e < 2.2) giveHold = s.item;
+      if (e > 0.5 && e < 1.65) oLT = 0.7;
+      if (s.item === "shades") faceK = smooth((e - 2.15) / 0.3) * (1 - smooth((e - 2.6) / 0.3));
+      if (e > 0.85 && !s.paid) { s.paid = true; sfxCash(); }
+      if (e > 0.9 && !s.asked) { s.asked = true; say(["ของแท้ป่ะ?", "оригинал?"], 1.1); }
+      if (e > (s.item === "shades" ? 2.45 : 2.2) && !s.got) { s.got = true; fakes++; accessory = s.item; accUntil = t + 150; }
+      if (e > 2.7 && !s.cool) { s.cool = true; say(["เท่ป่ะ?", "ну чё, стильно?"], 2); }
+      if (e > 3.6) { s.st = "close"; s.t0 = t; stopUntil = 0; }
+    }
+  } else if (s.st === "passed") {
+    oT = oLT = 1;
+    if (el > 1.6) { s.st = "close"; s.t0 = t; }
+  } else if (s.st === "close") {
+    if (el > 0.45) { s.st = "turnBack"; s.t0 = t; }
+  } else if (s.st === "turnBack") {
+    s.turn = 1 - clamp01(el / 0.3); s.f = 1;
+    if (el > 0.3) { s.st = "leave"; s.t0 = t; }
+  } else if (s.st === "leave") {
+    s.x += dt * 0.24; s.walk += dt * 7;
+    if (el > 3) seller = null;
   }
+  if (seller) { springTo(s, "o", oT, dt); springTo(s, "oL", oLT, dt); }
+}
+
+function sellerArmIK(sx0, sy0, tx, ty, bend) {
+  const L = 0.17;
+  let dx = tx - sx0, dy = ty - sy0, dd = Math.hypot(dx, dy);
+  if (dd > 2 * L * 0.999) { const k = 2 * L * 0.999 / dd; dx *= k; dy *= k; dd = 2 * L * 0.999; }
+  const base = Math.atan2(dy, dx), a = Math.acos(clamp(dd / (2 * L), -1, 1)) * bend;
+  return [sx0 + cos(base + a) * L, sy0 + sin(base + a) * L, sx0 + dx, sy0 + dy];
+}
+
+function fakeItem(kind, x, y, s) {
+  if (kind === "rolex" || kind === 0) {
+    rect(x - 0.008 * s, y - 0.035 * s, x + 0.008 * s, y + 0.035 * s, 0xFFB8902A);
+    circle(x, y, 0.022 * s, 0xFFE8C040); circle(x, y, 0.015 * s, 0xFF1A1A2A);
+    line(x, y, x + 0.008 * s, y - 0.006 * s, 0xFFE8C040, 0.003 * s);
+  } else if (kind === "shades" || kind === 1) {
+    rrect(x - 0.04 * s, y - 0.013 * s, x - 0.004 * s, y + 0.013 * s, 0.008 * s, 0xFF111111);
+    rrect(x + 0.004 * s, y - 0.013 * s, x + 0.04 * s, y + 0.013 * s, 0.008 * s, 0xFF111111);
+    line(x - 0.004 * s, y - 0.006 * s, x + 0.004 * s, y - 0.006 * s, 0xFF888888, 0.004 * s);
+  } else {
+    rrect(x - 0.018 * s, y - 0.032 * s, x + 0.018 * s, y + 0.032 * s, 0.006 * s, 0xFF222228);
+    rect(x - 0.014 * s, y - 0.026 * s, x + 0.014 * s, y + 0.022 * s, 0xFF3A6AC8);
+  }
+}
+
+function sellerFront(s, x, y, k) {
+  const el = t - s.t0, bounce = sin(t * 3) * 0.004;
+  cv.save(); cv.translate(x, y); cv.scale(k, k); cv.translate(0, bounce);
+  for (const sd of [-1, 1]) {
+    line(sd * 0.05, -0.47, sd * 0.06, -0.02, 0xFF2A2A30, 0.08);
+    oval(sd * 0.06 - 0.05, -0.035, sd * 0.06 + 0.05, 0.01, 0xFF4A2A18);
+  }
+  rect(-0.09, -0.84, 0.09, -0.42, 0xFF3A3A44);
+  line(0, -0.84, 0, -0.45, 0xFF2A2A30, 0.006);
+  const hands = [];
+  for (const sd of [-1, 1]) {
+    const os = sd < 0 ? s.oL : s.o;
+    const S0 = [sd * 0.13, -0.84], Hm = [sd * 0.17, -0.22];
+    const Tt = [sd * lerp(0.015, 0.44, os), lerp(-0.8, -0.74, os)], Tb = [sd * lerp(0.015, 0.47, os), lerp(-0.22, -0.3, os)];
+    const inside = Math.abs(Tt[0]) > 0.14;
+    poly([S0[0], S0[1], Tt[0], Tt[1], Tb[0], Tb[1], Hm[0], Hm[1]], inside ? LINING : COAT);
+    if (inside) {
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) {
+        const u = 0.38 + c * 0.38, v = 0.14 + r * 0.24;
+        const tx = lerp(S0[0], Tt[0], u), ty = lerp(S0[1], Tt[1], u), bx = lerp(Hm[0], Tb[0], u), by = lerp(Hm[1], Tb[1], u);
+        const ix = lerp(tx, bx, v) + sin(t * 4 + r + c) * 0.002, iy = lerp(ty, by, v);
+        fakeItem((r + c + (sd > 0 ? 1 : 0)) % 3, ix, iy, 1);
+        if ((r + c) % 3 === 0 && sin(t * 5 + r * 3 + c + sd) > 0.85) text("✦", ix + 0.025, iy - 0.02, 0.035, 0xFFFFFFE0);
+      }
+      line(Tt[0], Tt[1], Tb[0], Tb[1], COAT, 0.03);
+    } else {
+      line(sd * 0.04, -0.84, Tt[0], -0.6, COAT_D, 0.012);
+    }
+    hands.push(Tt);
+  }
+  if (s.o < 0.3 && s.oL < 0.3) {
+    rect(-0.17, -0.5, 0.17, -0.47, COAT_D);
+    rect(-0.02, -0.505, 0.02, -0.465, 0xFFD8B040);
+  }
+  const ex = giveK > 0 ? (giveX - x) / k : 0, ey = giveK > 0 ? (giveY - y) / k - bounce : 0;
+  for (const sd of [-1, 1]) {
+    const os = sd < 0 ? s.oL : s.o, Tt = hands[sd < 0 ? 0 : 1];
+    let tx = os > 0.05 ? Tt[0] : sd * 0.13, ty = os > 0.05 ? Tt[1] + 0.12 : -0.5;
+    if (sd < 0 && s.st === "buy" && s.ex0) {
+      const e = t - s.ex0;
+      const toEx = smooth((e - 0.5) / 0.35) * (1 - smooth((e - 1.0) / 0.2)) + smooth((e - 1.3) / 0.3) * (1 - smooth((e - 1.75) / 0.3));
+      const toLin = smooth((e - 1.0) / 0.2) * (1 - smooth((e - 1.3) / 0.15));
+      tx = lerp(lerp(tx, -0.25, toLin), ex, toEx); ty = lerp(lerp(ty, -0.55, toLin), ey, toEx);
+      s.handHold = e > 0.85 && e < 1.1 ? "bill" : e > 1.25 && e < 1.7 ? s.item : null;
+    } else if (sd < 0) s.handHold = null;
+    const sh = [sd * 0.13, -0.82];
+    const [elx, ely, hx, hy] = sellerArmIK(sh[0], sh[1], tx, ty, sd);
+    stroke(COAT, 0.07); cv.beginPath(); cv.moveTo(sh[0], sh[1]); cv.lineTo(elx, ely); cv.lineTo(hx, hy); cv.stroke();
+    circle(hx, hy, 0.028, SKIN_S);
+    if (sd < 0 && s.handHold === "bill") rect(hx - 0.04, hy - 0.015, hx + 0.02, hy + 0.015, 0xFF4AAA5A);
+    else if (sd < 0 && s.handHold) fakeItem(s.handHold, hx, hy, 1);
+  }
+  poly([-0.13, -0.86, -0.02, -0.86, -0.06, -0.74], COAT_D);
+  poly([0.13, -0.86, 0.02, -0.86, 0.06, -0.74], COAT_D);
+  rect(-0.025, -0.9, 0.025, -0.84, SKIN_S);
+  circle(0, -0.93, 0.075, SKIN_S);
+  circle(-0.075, -0.93, 0.015, 0xFFB08A60); circle(0.075, -0.93, 0.015, 0xFFB08A60);
+  const brow = s.st === "open" ? Math.max(0, sin(t * 7)) * 0.018 : 0;
+  line(-0.06, -0.975 - brow, -0.015, -0.968 - brow, 0xFF1A1010, 0.01);
+  line(0.015, -0.968 - brow, 0.06, -0.975 - brow, 0xFF1A1010, 0.01);
+  rrect(-0.062, -0.958, -0.008, -0.928, 0.01, 0xFF101010);
+  rrect(0.008, -0.958, 0.062, -0.928, 0.01, 0xFF101010);
+  line(-0.008, -0.95, 0.008, -0.95, 0xFF444444, 0.005);
+  line(-0.045, -0.95, -0.03, -0.95, 0x66FFFFFF, 0.004);
+  fill(0xFF1A1010); cv.beginPath(); cv.moveTo(-0.045, -0.895); cv.quadraticCurveTo(0, -0.915, 0.045, -0.895); cv.quadraticCurveTo(0, -0.902, -0.045, -0.895); cv.fill();
+  line(-0.015, -0.882, 0.02, -0.885, 0xFF6A3A2A, 0.006);
+  oval(-0.13, -1.015, 0.13, -0.985, HAT);
+  rrect(-0.075, -1.09, 0.075, -1.0, 0.025, HAT);
+  rect(-0.075, -1.02, 0.075, -1.005, 0xFF1A1010);
+  cv.restore();
+}
+
+function sellerSide(s, x, y, k, f) {
+  const a = s.st === "leave" ? sin(s.walk) * 0.4 : 0, sway = s.st === "wait" ? sin(t * 1.3) * 0.03 : 0;
+  cv.save(); cv.translate(x, y); cv.scale(f * k, k);
+  for (const ang of [-a, a]) {
+    const fx = sin(ang) * 0.44, fy = -0.47 + cos(ang) * 0.44;
+    line(0, -0.47, fx, fy, 0xFF2A2A30, 0.08);
+    oval(fx - 0.04, fy - 0.03, fx + 0.08, fy + 0.012, 0xFF4A2A18);
+  }
+  line(0, -0.8, sin(-a * 0.7) * 0.34, -0.8 + cos(-a * 0.7) * 0.34, COAT_D, 0.07);
+  poly([-0.11, -0.86, 0.1, -0.86, 0.15, -0.24, -0.14, -0.24], COAT);
+  rect(-0.12, -0.5, 0.12, -0.47, COAT_D);
+  line(-0.12, -0.45, -0.13, -0.26, COAT_D, 0.008);
+  const ax = sin(a * 0.7) * 0.34, ay = -0.8 + cos(a * 0.7) * 0.34;
+  line(0.02, -0.8, ax + 0.02, ay, COAT, 0.07);
+  circle(ax + 0.02, ay, 0.028, SKIN_S);
+  cv.translate(0, 0); cv.rotate(sway);
+  rect(0.01, -0.9, 0.06, -0.84, SKIN_S);
+  circle(0.04, -0.93, 0.072, SKIN_S);
+  oval(0.1, -0.935, 0.125, -0.91, SKIN_S);
+  rect(0.065, -0.955, 0.12, -0.928, 0xFF101010);
+  line(0.0, -0.94, 0.065, -0.94, 0xFF101010, 0.008);
+  line(0.085, -0.897, 0.12, -0.9, 0xFF1A1010, 0.014);
+  line(-0.1, -1.0, 0.16, -1.0, HAT, 0.03);
+  rrect(-0.04, -1.08, 0.09, -1.0, 0.02, HAT);
+  rect(-0.04, -1.02, 0.09, -1.005, 0xFF1A1010);
+  cv.restore();
 }
 
 function drawSeller() {
   if (!seller) return;
-  const s = seller, S = CH * H, x = (s.x - camX) * H, y = FY * H, o = s.o, el = t - s.t0;
+  const s = seller, k = CH * H, x = (s.x - camX) * H, y = FY * H, el = t - s.t0;
   if (x < -0.5 * H || x > W + 0.5 * H) return;
-  cv.globalAlpha = s.st === "leave" ? clamp01(1 - el / 2.5) : 1;
-  oval(x - 0.2 * S, y - 0.02 * S, x + 0.2 * S, y + 0.025 * S, 0x66000000);
-  const P = STAND.slice(); P[5] = lerp(0.3, 1.5, o); P[6] = lerp(0.6, 0.1, o); P[7] = lerp(0.3, 1.5, o); P[8] = lerp(0.6, 0.1, o);
-  figure(x, y, S, P, -1, 0xFFC8A070, { shirt: 0xFF2A2A30 });
-  cv.save(); cv.translate(x, y); cv.scale(-S, S);
-  if (o > 0.05) {
-    rect(-0.12, -0.82, 0.12, -0.2, 0xFF5A1018);
-    for (let r = 0; r < 4; r++) for (let c = 0; c < 3; c++) {
-      const ix = -0.08 + c * 0.08, iy = -0.74 + r * 0.14, kind = (r + c) % 3;
-      if (kind === 0) { stroke(0xFFE8C040, 0.012); cv.beginPath(); cv.arc(ix, iy, 0.022, 0, PI * 2); cv.stroke(); if (sin(t * 5 + r * 3 + c) > 0.85) text("✦", ix + 0.02, iy - 0.02, 0.04, 0xFFFFFFE0); }
-      else if (kind === 1) { oval(ix - 0.035, iy - 0.012, ix - 0.003, iy + 0.012, 0xFF111111); oval(ix + 0.003, iy - 0.012, ix + 0.035, iy + 0.012, 0xFF111111); line(ix - 0.003, iy, ix + 0.003, iy, 0xFF888888, 0.006); }
-      else { rrect(ix - 0.02, iy - 0.035, ix + 0.02, iy + 0.035, 0.006, 0xFF222228); rect(ix - 0.015, iy - 0.028, ix + 0.015, iy + 0.022, 0xFF3A6AC8); }
-    }
-    for (const sd of [-1, 1]) poly([sd * 0.12, -0.84, sd * (0.12 + 0.32 * o), -0.66, sd * (0.16 + 0.3 * o), -0.2, sd * 0.16, -0.2], 0xFFB8A070);
-  } else {
-    poly([-0.13, -0.84, 0.13, -0.84, 0.17, -0.2, -0.17, -0.2], 0xFFB8A070);
-    line(0, -0.84, 0, -0.2, 0xFF8A7650, 0.008);
-    line(-0.15, -0.5, 0.15, -0.5, 0xFF6A5A3A, 0.02);
-  }
-  rect(-0.13, -1.0, 0.13, -0.98, 0xFF3A2A1A);
-  rect(-0.08, -1.07, 0.08, -0.99, 0xFF3A2A1A);
-  oval(0.02, -0.93, 0.1, -0.895, 0xFF111111);
-  line(0.03, -0.86, 0.1, -0.865, 0xFF1A1010, 0.012);
+  cv.globalAlpha = s.st === "leave" ? clamp01(1 - (el - 1.5) / 1.5) : 1;
+  oval(x - 0.2 * k, y - 0.02 * k, x + 0.22 * k, y + 0.025 * k, 0x66000000);
+  const sxf = Math.max(0.06, Math.abs(cos(PI * s.turn)));
+  cv.save(); cv.translate(x, 0); cv.scale(sxf, 1); cv.translate(-x, 0);
+  if (s.turn >= 0.5) sellerFront(s, x, y, k); else sellerSide(s, x, y, k, s.f);
   cv.restore();
-  if (s.st === "buy") {
-    const k1 = smooth((el - 0.5) / 0.6), k2 = smooth((el - 1.1) / 0.5);
-    const dX = (px - camX) * H + 0.06 * S, dY = y - 0.6 * S, sX = x - 0.15 * S, sY = y - 0.62 * S;
-    if (el > 0.5 && el < 1.3) rect(lerp(dX, sX, k1) - 0.025 * S, lerp(dY, sY, k1) - 0.012 * S, lerp(dX, sX, k1) + 0.025 * S, lerp(dY, sY, k1) + 0.012 * S, 0xFF4AAA5A);
-    if (el > 1.1 && el < 1.7) { const ix = lerp(sX, dX, k2), iy = lerp(sY, dY, k2); if (s.item === "rolex") circle(ix, iy, 0.02 * S, 0xFFE8C040); else { oval(ix - 0.035 * S, iy - 0.012 * S, ix, iy + 0.012 * S, 0xFF111111); oval(ix + 0.003 * S, iy - 0.012 * S, ix + 0.038 * S, iy + 0.012 * S, 0xFF111111); } }
-  }
   cv.globalAlpha = 1;
-  const by = y - 1.1 * S;
+  const by = y - 1.12 * k, e = s.ex0 ? t - s.ex0 : -1;
   if (s.st === "open") bubble(x, by, mod(t, 5) < 2.5 ? ["นาฬิกาไหมพี่?", "часики, брат?"] : "Psst... Rolex? Ray-Ban?", 0.03 * H, clamp01(s.o * 2));
-  else if (s.st === "buy" && el < 1.0) bubble(x, by, ["500 บาท", "500 бат"], 0.03 * H, 1);
-  else if (s.st === "buy" && el > 2.0) bubble(x, by, ["แท้ร้อยเปอร์!", "сто процентов оригинал!"], 0.03 * H, 1);
-  else if (s.st === "passed" && el < 2.2) bubble(x, by, ["ถูกๆ! Cheap cheap!", "дёшево, брат!"], 0.03 * H, 1);
+  else if (s.st === "buy" && e < 0) bubble(x, by, ["มาๆ", "иди сюда, иди"], 0.03 * H, 1);
+  else if (s.st === "buy" && e < 0.9) bubble(x, by, ["500 บาท", "500 бат"], 0.03 * H, 1);
+  else if (s.st === "buy" && e > 1.3 && e < 2.6) bubble(x, by, ["แท้ร้อยเปอร์!", "сто процентов оригинал!"], 0.03 * H, 1);
+  else if (s.st === "passed") bubble(x, by, ["ถูกๆ! Cheap cheap!", "дёшево, брат!"], 0.03 * H, 1);
 }
 
 function sfxCash() {
