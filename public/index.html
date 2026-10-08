@@ -104,6 +104,16 @@ function text(s, x, y, size, c, align, shadow) {
 
 // ---------------------------------------------------------------- input
 
+function muteBtn() {
+  const hs = Math.max(H, Math.min(SW, SH) * 0.6);
+  return { x: SW - 0.08 * hs, y: 0.075 * hs, r: 0.045 * hs };
+}
+
+function inMute(x, y) {
+  const b = muteBtn(), dx = x - b.x, dy = y - b.y;
+  return dx * dx + dy * dy < b.r * b.r * 2;
+}
+
 function inBtn(x, y) { const dx = x - btnX, dy = y - btnY; return dx * dx + dy * dy < btnR * btnR * 1.5; }
 
 function recalcDir() {
@@ -117,6 +127,8 @@ function recalcDir() {
 
 cvs.addEventListener("pointerdown", e => {
   e.preventDefault();
+  if (inMute(e.clientX, e.clientY)) { toggleMute(); return; }
+  initAudio();
   if (inBtn(e.clientX, e.clientY)) { smoke(); return; }
   pointers.set(e.pointerId, { x: e.clientX });
   try { cvs.setPointerCapture(e.pointerId); } catch (_) {}
@@ -133,6 +145,8 @@ cvs.addEventListener("contextmenu", e => e.preventDefault());
 
 window.addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
+  if ((k === "m" || k === "ь") && !e.repeat) { toggleMute(); return; }
+  initAudio();
   if (k === "arrowleft" || k === "a" || k === "ф") keys.l = true;
   else if (k === "arrowright" || k === "d" || k === "в") keys.r = true;
   else if ((k === " " || k === "s" || k === "ы" || k === "enter") && !e.repeat) smoke();
@@ -168,6 +182,7 @@ function addPart(x, y, vx, vy, life, s0, s1, alpha, kind) {
 }
 
 function puff(n) {
+  sfxExhale(n > 12);
   const mx = wx(0.13), my = wy(-0.89);
   for (let i = 0; i < n; i++) {
     addPart(mx, my, face * (0.03 + Math.random() * 0.05), -0.008 - Math.random() * 0.025,
@@ -195,6 +210,7 @@ function update(dt) {
   if (sx !== old) { sFace = sx > old ? 1 : -1; wheelRot += (sx - old) / (0.09 * SC); }
 
   if (lightT >= 0) {
+    if (lightT < 0.4 && lightT + dt >= 0.4) sfxLighter();
     lightT += dt;
     if (lightT >= 0.3 && !hasCig) { hasCig = true; cigLen = 1; cigs++; }
     if (lightT >= 1.0 && !lit) { lit = true; emberGlow = 1; }
@@ -733,16 +749,241 @@ function drawHud() {
   text("🚬", btnX, btnY + 0.015 * H, 0.075 * H, 0xFFFFFFFF);
   text(hasCig ? "ЗАТЯЖКА" : "ПОКУРИТЬ", btnX, btnY + 0.07 * H, 0.026 * H, busy ? 0x88FFB070 : 0xFFFFB070);
 
+  const mb = muteBtn();
+  circle(mb.x, mb.y, mb.r, 0x77000000);
+  text(muted ? "🔇" : "🔊", mb.x, mb.y + mb.r * 0.38, mb.r * 1.05, 0xFFFFFFFF);
+
   if (hintT > 0) {
     const a = (255 * Math.min(1, hintT)) | 0;
     const touch = matchMedia("(pointer: coarse)").matches;
-    const hint = touch ? "держи справа — идёшь, слева — назад" : "← → или A/D — идти, пробел — курить";
+    const hint = touch ? "держи справа — идёшь, слева — назад" : "← → или A/D — идти, пробел — курить, M — музыка";
     text(hint, SW / 2, OY + H * 0.3, 0.036 * H, withA(0xFFFFFF, a), "center", [withA(0xFF000000, a), 0.006 * H, 0.003 * H]);
   }
   if (SH > SW * 1.2) {
     text("переверни телефон — так пиздаче", SW / 2, OY * 0.5 + 0.02 * SH, 0.045 * SW, 0xAAFFFFFF, "center", sh);
   }
 }
+
+// ---------------------------------------------------------------- music
+
+const BPM = 86, STEP = 60 / BPM / 4;
+const CHORDS = [[57, 60, 64], [57, 60, 65], [55, 60, 64], [55, 59, 62]];
+const ROOTS = [45, 41, 48, 43];
+const ARP = [0, 1, 2, 3, 2, 1, 0, 1, 0, 1, 2, 3, 2, 1, 2, 1];
+const MELODY = [[0, 76, 6], [6, 74, 2], [8, 72, 4], [12, 71, 4], [16, 69, 8], [24, 72, 4], [28, 74, 4],
+  [32, 76, 6], [38, 79, 2], [40, 76, 8], [48, 74, 6], [54, 71, 2], [56, 74, 8]];
+let actx = null, master, duck, revIn, dlyIn, noiseBuf, nextT = 0, step = 0;
+let muted = localStorage.getItem("bkMuted") === "1";
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+function initAudio(offline) {
+  if (actx) { if (actx.state !== "running") actx.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC && !offline) return;
+  actx = offline || new AC();
+  const c = actx;
+  master = c.createGain();
+  master.gain.value = muted ? 0 : 0.55;
+  const tone = c.createBiquadFilter(); tone.type = "lowpass"; tone.frequency.value = 9000;
+  const comp = c.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4;
+  master.connect(tone); tone.connect(comp); comp.connect(c.destination);
+
+  const rev = c.createConvolver();
+  const len = c.sampleRate * 3.2, ir = c.createBuffer(2, len, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+  }
+  rev.buffer = ir;
+  revIn = c.createGain(); revIn.connect(rev);
+  const revOut = c.createGain(); revOut.gain.value = 0.55; rev.connect(revOut); revOut.connect(master);
+
+  const dly = c.createDelay(2); dly.delayTime.value = STEP * 3;
+  const fb = c.createGain(); fb.gain.value = 0.4;
+  const dlp = c.createBiquadFilter(); dlp.type = "lowpass"; dlp.frequency.value = 2400;
+  dly.connect(dlp); dlp.connect(fb); fb.connect(dly);
+  dlyIn = c.createGain(); dlyIn.connect(dly);
+  const dOut = c.createGain(); dOut.gain.value = 0.5; dlp.connect(dOut); dOut.connect(master); dOut.connect(revIn);
+
+  duck = c.createGain(); duck.connect(master);
+  noiseBuf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+  const nd = noiseBuf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+
+  nextT = c.currentTime + 0.1;
+  if (!offline) setInterval(schedule, 25);
+}
+
+function route(node, dry, rv, dl, toDuck) {
+  const g = actx.createGain(); g.gain.value = dry; node.connect(g); g.connect(toDuck ? duck : master);
+  if (rv) { const r = actx.createGain(); r.gain.value = rv; node.connect(r); r.connect(revIn); }
+  if (dl) { const d = actx.createGain(); d.gain.value = dl; node.connect(d); d.connect(dlyIn); }
+}
+
+function osc(type, freq, t, stop, detune) {
+  const o = actx.createOscillator(); o.type = type; o.frequency.value = freq;
+  if (detune) o.detune.value = detune;
+  o.start(t); o.stop(stop);
+  return o;
+}
+
+function noise(t, dur) {
+  const n = actx.createBufferSource(); n.buffer = noiseBuf;
+  n.start(t, Math.random() * 0.5); n.stop(t + dur);
+  return n;
+}
+
+function pad(chord, t, dur) {
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.Q.value = 2;
+  f.frequency.setValueAtTime(500, t); f.frequency.linearRampToValueAtTime(1700, t + dur * 0.6); f.frequency.linearRampToValueAtTime(900, t + dur);
+  const env = actx.createGain();
+  env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.045, t + 0.5);
+  env.gain.setValueAtTime(0.045, t + dur - 0.1); env.gain.linearRampToValueAtTime(0, t + dur + 0.9);
+  for (const m of chord) for (const dt of [-9, 9]) osc("sawtooth", mtof(m), t, t + dur + 1, dt).connect(f);
+  osc("triangle", mtof(chord[0] - 12), t, t + dur + 1).connect(f);
+  f.connect(env);
+  route(env, 1, 0.6, 0, true);
+}
+
+function bass(m, t) {
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.Q.value = 4;
+  f.frequency.setValueAtTime(1100, t); f.frequency.exponentialRampToValueAtTime(260, t + 0.2);
+  const env = actx.createGain();
+  env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(0.22, t + 0.008);
+  env.gain.exponentialRampToValueAtTime(0.08, t + STEP * 1.8); env.gain.linearRampToValueAtTime(0, t + STEP * 1.95);
+  osc("sawtooth", mtof(m), t, t + STEP * 2).connect(f);
+  osc("square", mtof(m - 12), t, t + STEP * 2).connect(f);
+  f.connect(env);
+  route(env, 1, 0, 0, true);
+}
+
+function arp(m, t, vol) {
+  const f = actx.createBiquadFilter(); f.type = "lowpass";
+  f.frequency.setValueAtTime(3500, t); f.frequency.exponentialRampToValueAtTime(700, t + 0.16);
+  const env = actx.createGain();
+  env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(vol, t + 0.005);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  osc("square", mtof(m), t, t + 0.25).connect(f);
+  f.connect(env);
+  route(env, 1, 0.3, 0.55, false);
+}
+
+function lead(m, t, dur) {
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 2300;
+  const env = actx.createGain();
+  env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.08, t + 0.06);
+  env.gain.setValueAtTime(0.08, t + dur - 0.05); env.gain.linearRampToValueAtTime(0, t + dur + 0.25);
+  const lfo = osc("sine", 5.5, t, t + dur + 0.3);
+  const depth = actx.createGain();
+  depth.gain.setValueAtTime(0, t); depth.gain.linearRampToValueAtTime(12, t + Math.min(dur, 0.5));
+  lfo.connect(depth);
+  for (const dt of [-7, 7]) {
+    const o = osc("sawtooth", mtof(m), t, t + dur + 0.3, dt);
+    depth.connect(o.detune);
+    o.connect(f);
+  }
+  f.connect(env);
+  route(env, 1, 0.7, 0.45, false);
+}
+
+function kick(t) {
+  const o = osc("sine", 150, t, t + 0.4);
+  o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+  const env = actx.createGain();
+  env.gain.setValueAtTime(0.95, t); env.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+  o.connect(env);
+  route(env, 1, 0, 0, false);
+  duck.gain.cancelScheduledValues(t);
+  duck.gain.setValueAtTime(0.25, t); duck.gain.linearRampToValueAtTime(1, t + 0.32);
+}
+
+function snare(t) {
+  const n = noise(t, 0.3);
+  const bp = actx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1700; bp.Q.value = 0.6;
+  const env = actx.createGain();
+  env.gain.setValueAtTime(0.45, t); env.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+  n.connect(bp); bp.connect(env);
+  route(env, 1, 1.4, 0, false);
+  const o = osc("triangle", 190, t, t + 0.12);
+  const e2 = actx.createGain();
+  e2.gain.setValueAtTime(0.3, t); e2.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  o.connect(e2);
+  route(e2, 1, 0.6, 0, false);
+}
+
+function hat(t, open) {
+  const n = noise(t, open ? 0.3 : 0.06);
+  const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 7500;
+  const env = actx.createGain();
+  env.gain.setValueAtTime(open ? 0.05 : 0.035, t); env.gain.exponentialRampToValueAtTime(0.001, t + (open ? 0.25 : 0.04));
+  n.connect(hp); hp.connect(env);
+  route(env, 1, 0.1, 0, false);
+}
+
+function playStep(s, t) {
+  const bar = Math.floor(s / 16), st = s % 16, ch = bar % 4, loop = Math.floor(bar / 4);
+  const intro = bar < 4, breakdown = loop % 6 === 5;
+  if (st === 0) pad(CHORDS[ch], t, STEP * 16);
+  const tones = CHORDS[ch].concat([CHORDS[ch][0] + 12]);
+  arp(tones[ARP[st]] + 12, t, intro ? 0.035 : 0.045);
+  if (intro || breakdown) return;
+  if (st % 2 === 0) bass(ROOTS[ch] - (st === 14 && ch === 3 ? -2 : 0), t);
+  if (st === 0 || st === 8 || (st === 10 && loop % 2 === 1)) kick(t);
+  if (st === 4 || st === 12) snare(t);
+  if (st % 2 === 0) hat(t, st === 6 || st === 14);
+  else hat(t, false);
+  if (loop % 4 >= 2) {
+    const pos = (bar % 4) * 16 + st;
+    for (const n of MELODY) if (n[0] === pos) lead(n[1], t, n[2] * STEP);
+  }
+}
+
+function schedule() {
+  if (!actx || actx.state !== "running") return;
+  if (nextT < actx.currentTime) nextT = actx.currentTime + 0.05;
+  while (nextT < actx.currentTime + 0.15) {
+    playStep(step, nextT);
+    nextT += STEP;
+    step++;
+  }
+}
+
+function sfxLighter() {
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  for (const d of [0, 0.09]) {
+    const n = noise(t + d, 0.04);
+    const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 3000;
+    const e = actx.createGain(); e.gain.setValueAtTime(0.25, t + d); e.gain.exponentialRampToValueAtTime(0.001, t + d + 0.035);
+    n.connect(hp); hp.connect(e); e.connect(master);
+  }
+  const n = noise(t + 0.1, 0.6);
+  const bp = actx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 500;
+  const e = actx.createGain(); e.gain.setValueAtTime(0, t + 0.1); e.gain.linearRampToValueAtTime(0.12, t + 0.2); e.gain.linearRampToValueAtTime(0, t + 0.6);
+  n.connect(bp); bp.connect(e); e.connect(master);
+}
+
+function sfxExhale(big) {
+  if (!actx || muted) return;
+  const t = actx.currentTime, dur = big ? 1.4 : 1.0;
+  const n = noise(t, dur);
+  const lp = actx.createBiquadFilter(); lp.type = "lowpass";
+  lp.frequency.setValueAtTime(1400, t); lp.frequency.linearRampToValueAtTime(500, t + dur);
+  const e = actx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(big ? 0.22 : 0.15, t + 0.12); e.gain.linearRampToValueAtTime(0, t + dur);
+  n.connect(lp); lp.connect(e); e.connect(master);
+}
+
+function toggleMute() {
+  muted = !muted;
+  localStorage.setItem("bkMuted", muted ? "1" : "0");
+  initAudio();
+  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.55, actx.currentTime, 0.1);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!actx) return;
+  if (document.hidden) actx.suspend(); else actx.resume();
+});
 
 requestAnimationFrame(frame);
 </script>
