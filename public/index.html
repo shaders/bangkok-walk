@@ -400,7 +400,9 @@ function update(dt) {
       const rel = eventX(j) - dX;
       if (rel > 0.05 * H && rel < 0.3 * H) {
         watched.add(j);
-        if (Math.random() < 0.5) say(pick(WOWS, Math.random()), 2.2);
+        const sp = COMMENTS.get(eventFn(j));
+        if (sp) say(pick(sp, Math.random()), 2.4);
+        else if (Math.random() < 0.5) say(pick(WOWS, Math.random()), 2.2);
         break;
       }
     }
@@ -707,11 +709,14 @@ function rooftop(bx, bw, topY, i) {
 
 // ---------------------------------------------------------------- districts
 
-const DL = 12;
+const DL = 9;
 const DISTRICTS = [
   { name: "Сукхумвит", kind: "shop" }, { name: "Яоварат", kind: "china" }, { name: "Каосан-роуд", kind: "khaosan" }, { name: "Ват Пхо", kind: "temple" },
-  { name: "Ночной рынок", kind: "market" }, { name: "Чао Прайя", kind: "river" }, { name: "Сой Ковбой", kind: "cowboy" }, { name: "Силом", kind: "cbd" }, { name: "Сатхорн", kind: "sathorn" }];
-const ROUTE = [0, 7, 8, 1, 2, 3, 4, 5, 6];
+  { name: "Ночной рынок", kind: "market" }, { name: "Чао Прайя", kind: "river" }, { name: "Сой Ковбой", kind: "cowboy" }, { name: "Силом", kind: "cbd" }, { name: "Сатхорн", kind: "sathorn" },
+  { name: "Сиам", kind: "siam" }, { name: "Люмпини", kind: "park" }, { name: "Эраван", kind: "erawan" }, { name: "Монумент Победы", kind: "victory" },
+  { name: "Большой дворец", kind: "palace" }, { name: "Тхонглор", kind: "thonglor" }, { name: "RCA", kind: "rca" }, { name: "Asiatique", kind: "asiatique" },
+  { name: "Нана Плаза", kind: "nana" }, { name: "Сой Араб", kind: "arab" }, { name: "Хуалампонг", kind: "station" }, { name: "Клонг Тоей", kind: "wetmarket" }];
+const ROUTE = [0, 7, 8, 10, 9, 11, 12, 1, 19, 20, 13, 3, 2, 5, 16, 4, 15, 14, 17, 18, 6];
 const CN_SIGNS = ["金行", "大酒楼", "燕窝", "茶庄", "酒家", "按摩", "旅社", "金店", "药房"];
 const KS_SIGNS = ["BUCKET 199฿", "REGGAE BAR", "HAPPY HOUR", "NO ID NO PROBLEM", "CHEAP BEER", "TATTOO", "PAD THAI 50฿", "HOSTEL", "LADYBOY SHOW"];
 const CB_SIGNS = ["COWBOY", "LUCKY STAR", "PINK PANTHER", "BUNNY", "SHARK", "KISS", "BACCARA", "TILAC"];
@@ -726,6 +731,18 @@ const DISTRICT_EVENTS = {
   cowboy: [evGogo, evMassage, evBrawl, evCops, evKaraoke, evGogo],
   cbd: [evRelocant, evTiktok, evCops, evMuayThai, evKungfu],
   sathorn: [evWok, evWok, evRelocant, evBeerTable, evTiktok, evWok],
+  siam: [evKpop, evTiktok, evRelocant, evCops, evKpop],
+  park: [evLizard, evJoggers, evAerobics, evLizard, evMonks],
+  erawan: [evThaiDance, evThaiDance, evMonks, evTiktok],
+  victory: [evMinivan, evMinivan, evCops, evBeerTable, evBrawl],
+  palace: [evGuards, evPalaceScam, evBackpackers, evMonks, evPalaceScam],
+  thonglor: [evPomStroller, evRelocant, evBeerTable, evTiktok, evPomStroller],
+  rca: [evClubQueue, evClubQueue, evBrawl, evTiktok, evDJ],
+  asiatique: [evFireShow, evTiktok, evBeerTable, evMuayThai, evKaraoke],
+  nana: [evGogo, evMassage, evBrawl, evCops, evClubQueue],
+  arab: [evShisha, evShawarma, evShisha, evTuktuk],
+  station: [evBackpackers, evMonks, evTuktuk, evIcePorters],
+  wetmarket: [evFishVendor, evIcePorters, evFishVendor, evBeerTable],
 };
 
 function rawD(d) { return (rnd(d, 200) * DISTRICTS.length) | 0; }
@@ -738,7 +755,9 @@ function districtName(lx) {
   if (DISTRICTS[k].kind === "cbd" && soiAt(lx)) return n + " Soi " + soiAt(lx);
   return n;
 }
-const DRAWERS = { china: bChina, khaosan: bKhaosan, temple: bTemple, market: bMarket, river: bRiver, cowboy: bCowboy, cbd: bSilom, sathorn: bSathorn };
+const DRAWERS = { china: bChina, khaosan: bKhaosan, temple: bTemple, market: bMarket, river: bRiver, cowboy: bCowboy, cbd: bSilom, sathorn: bSathorn,
+  siam: bSiam, park: bPark, erawan: bErawan, victory: bVictory, palace: bPalace, thonglor: bThonglor, rca: bRca, asiatique: bAsiatique,
+  nana: bNana, arab: bArab, station: bStation, wetmarket: bWetmarket };
 
 function farWalk(x0, w) {
   rect(x0, 0.6 * H, x0 + w + 1, 0.64 * H, 0xFF4A4A50);
@@ -997,7 +1016,7 @@ function iconsiam(cx) {
 
 
 function relInDistrict(lx) { return lx - Math.floor(lx / DL) * DL; }
-function soiAt(lx) { const r = relInDistrict(lx); return r >= 2.4 && r < 4.8 ? 2 : r >= 7.2 && r < 9.6 ? 4 : 0; }
+function soiAt(lx) { const r = relInDistrict(lx); return r >= 1.8 && r < 4.2 ? 2 : r >= 5.4 && r < 7.8 ? 4 : 0; }
 
 function btsSlot(x0, w, i) {
   rect(x0, 0.3 * H, x0 + w + 1, 0.345 * H, 0xFF8E8E8A);
@@ -1015,7 +1034,7 @@ function btsSlot(x0, w, i) {
 
 function bSilom(x0, w, i, topLimit) {
   const n = soiAt(i * 0.6);
-  if (n) bSoi(x0, w, i, n, relInDistrict(i * 0.6) - (n === 2 ? 2.4 : 7.2));
+  if (n) bSoi(x0, w, i, n, relInDistrict(i * 0.6) - (n === 2 ? 1.8 : 5.4));
   else bCbd(x0, w, i, topLimit);
 }
 
@@ -1192,6 +1211,448 @@ function evWok(cx, j, lt) {
   else if (c > 4 && c < 6) bubble(cx + 0.29 * U, G - S * 0.9, ["เผ็ดๆ นะ!", "поострее!"], 0.026 * H, 1);
 }
 
+
+// ---------------------------------------------------------------- more districts
+
+function bgTower(x0, w, i, tl, col) {
+  const top = tl - 0.1;
+  rect(x0, top * H, x0 + w + 1, 0.45 * H, col);
+  let r = 0;
+  for (let y = 0.4 * H; y > top * H; y -= 0.045 * H, r++) for (let c = 0; c < 3; c++) if (rnd(i * 911 + c, r) > 0.55) rect(x0 + w * (0.12 + c * 0.3), y, x0 + w * (0.28 + c * 0.3), y + 0.022 * H, 0x99FFE0B0);
+}
+
+function lowShop(x0, w, i, sign, signCol) {
+  rect(x0, 0.13 * H, x0 + w + 1, 0.6 * H, pick(FACADE, rnd(i, 500)));
+  for (const fy of [0.13, 0.29]) for (let k = 0; k < 2; k++) floorWindow(x0 + (k + 0.5) * w / 2, fy, i * 61 + k + (fy > 0.2 ? 7 : 0));
+  rect(x0 + 0.01 * H, 0.49 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFF2A2018);
+  glow(x0 + w / 2, 0.55 * H, w * 0.6, 0xFFFFC070, 70);
+  rect(x0, 0.45 * H, x0 + w, 0.49 * H, signCol || 0xFF1E5AC8);
+  text(sign, x0 + w / 2, 0.48 * H, 0.024 * H, 0xFFFFFFFF);
+}
+
+function bSiam(x0, w, i, tl) {
+  const top = tl - 0.1;
+  rect(x0, top * H, x0 + w + 1, 0.6 * H, 0xFF1A2230);
+  for (let x = x0; x < x0 + w; x += 0.05 * H) line(x, top * H, x, 0.45 * H, 0x2240A0D0, 0.002 * H);
+  const hue = mod(t * 30 + i * 25, 360);
+  const g = cv.createLinearGradient(x0, 0, x0 + w, 0);
+  g.addColorStop(0, "hsl(" + hue.toFixed(0) + ",80%,40%)"); g.addColorStop(1, "hsl(" + ((hue + 60) % 360).toFixed(0) + ",80%,55%)");
+  cv.fillStyle = g; cv.fillRect(x0 + 0.01 * H, 0.0, w - 0.02 * H, 0.24 * H);
+  for (let y = 0; y < 0.24 * H; y += 0.008 * H) line(x0, y, x0 + w, y, 0x22000000, 0.002 * H);
+  if (mod(i, 3) === 1) text(pick(["SIAM PARAGON", "MBK CENTER", "SALE 70%", "K-POP LIVE", "SIAM SQUARE"], rnd(Math.floor(t / 4) + i, 400)), x0 + w / 2, 0.15 * H, 0.055 * H, 0xFFFFFFFF, "center", [0xFFFFFFFF, 0.02 * H]);
+  rect(x0, 0.32 * H, x0 + w + 1, 0.35 * H, 0xFFB8B8B0);
+  line(x0, 0.29 * H, x0 + w + 1, 0.29 * H, 0xFF888888, 0.003 * H);
+  for (let x = x0; x < x0 + w; x += 0.06 * H) line(x, 0.29 * H, x, 0.32 * H, 0xFF888888, 0.002 * H);
+  for (let k = 0; k < 2; k++) { const xx = x0 + mod(t * 0.06 * H * (k ? 1 : -1) + rnd(i * 2 + k, 401) * w, w); figure(xx, 0.32 * H, 0.06 * H, walkP(t * 6 + k, false), k ? 1 : -1, 0xFF0A0A10); }
+  rect(x0 + 0.01 * H, 0.45 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFFDCE4EC);
+  glow(x0 + w / 2, 0.53 * H, w * 0.6, 0xFFFFFFFF, 70);
+  rect(x0, 0.45 * H, x0 + w, 0.48 * H, 0xFF101820);
+  text(pick(["FASHION", "CAFE", "CINEMA", "FOOD HALL", "GADGETS", "BUBBLE TEA"], rnd(i, 402)), x0 + w / 2, 0.472 * H, 0.022 * H, 0xFFFFFFFF);
+  farWalk(x0, w);
+}
+
+function bPark(x0, w, i, tl) {
+  const g = cv.createLinearGradient(0, 0.47 * H, 0, 0.6 * H);
+  g.addColorStop(0, "#0A1A30"); g.addColorStop(1, "#06101C");
+  cv.fillStyle = g; cv.fillRect(x0, 0.47 * H, w + 1, 0.13 * H);
+  for (let k = 0; k < 4; k++) line(x0 + rnd(i * 4 + k, 410) * w, (0.49 + rnd(i * 4 + k, 411) * 0.08) * H, x0 + rnd(i * 4 + k, 410) * w + 0.03 * H, (0.49 + rnd(i * 4 + k, 411) * 0.08) * H, withA(0xFFFFE0A0, 80 + 50 * sin(t * 2 + k)), 0.003 * H);
+  for (let k = 0; k < 2; k++) {
+    const tx = x0 + w * (0.25 + k * 0.5) + (rnd(i * 2 + k, 412) - 0.5) * 0.1 * H, th = (0.25 + rnd(i * 2 + k, 413) * 0.12) * H;
+    line(tx, 0.6 * H, tx, 0.6 * H - th, 0xFF2A2018, 0.02 * H);
+    for (let c = 0; c < 6; c++) circle(tx + (rnd(i * 12 + k * 6 + c, 414) - 0.5) * 0.18 * H, 0.6 * H - th - (rnd(i * 12 + k * 6 + c, 415) - 0.3) * 0.1 * H, (0.05 + rnd(i * 12 + k * 6 + c, 416) * 0.04) * H, pick([0xFF0E2A16, 0xFF143A1E, 0xFF1A4626], rnd(i * 12 + c, 417)));
+  }
+  if (i % 2) { line(x0 + w / 2, 0.6 * H, x0 + w / 2, 0.45 * H, 0xFF2A2A2A, 0.006 * H); glow(x0 + w / 2, 0.45 * H, 0.06 * H, 0xFFFFE0A0, 170); }
+  rect(x0, 0.565 * H, x0 + w + 1, 0.57 * H, 0xFF1E3A2A);
+  for (let x = x0; x < x0 + w; x += 0.02 * H) line(x, 0.55 * H, x, 0.6 * H, 0xFF1E3A2A, 0.003 * H);
+  farWalk(x0, w);
+}
+
+function bErawan(x0, w, i, tl) {
+  const m = mod(i, 4);
+  if (m === 0) {
+    const cx = x0 + w;
+    glow(cx, 0.4 * H, 0.45 * H, 0xFFFFC060, 90);
+    rect(cx - 0.22 * H, 0.52 * H, cx + 0.22 * H, 0.6 * H, 0xFFE8E0D0);
+    for (const s of [-1, 1]) for (const d of [0.08, 0.15]) rect(cx + s * d * H - 0.008 * H, 0.36 * H, cx + s * d * H + 0.008 * H, 0.52 * H, 0xFFD8A830);
+    circle(cx, 0.45 * H, 0.05 * H, 0xFFE8B830);
+    rect(cx - 0.03 * H, 0.45 * H, cx + 0.03 * H, 0.52 * H, 0xFFE8B830);
+    for (let k = 0; k < 4; k++) { const ww = (0.2 - k * 0.04) * H, yb = (0.37 - k * 0.04) * H; poly([cx - ww, yb, cx, yb - 0.05 * H, cx + ww, yb], k % 2 ? 0xFFD8A830 : 0xFFB8862A); }
+    poly([cx - 0.015 * H, 0.22 * H, cx, 0.08 * H, cx + 0.015 * H, 0.22 * H], 0xFFE8C040);
+    for (let k = 0; k < 7; k++) for (let n = 0; n < 5; n++) circle(cx - 0.2 * H + k * 0.066 * H, 0.38 * H + n * 0.012 * H, 0.006 * H, n % 2 ? 0xFFFFA020 : 0xFFFFE040);
+    for (let k = 0; k < 4; k++) { const mm = mod(t * 0.3 + k / 4, 1); circle(cx + 0.12 * H + sin(mm * 6 + k) * 0.02 * H, (0.5 - mm * 0.25) * H, (0.01 + mm * 0.03) * H, withA(0xDDDDDD, 70 * (1 - mm))); }
+  } else if (m !== 1) {
+    bgTower(x0, w, i, tl, 0xFF2A2830);
+    rect(x0 + 0.01 * H, 0.47 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFF3A2A18);
+    for (let k = 0; k < 10; k++) circle(x0 + 0.04 * H + k * (w - 0.08 * H) / 9, 0.56 * H, 0.012 * H, k % 2 ? 0xFFFFA020 : 0xFFFFE070);
+    rect(x0, 0.45 * H, x0 + w, 0.48 * H, 0xFFE0A020);
+    text("พวงมาลัย", x0 + w / 2, 0.472 * H, 0.022 * H, 0xFF5A1A0A);
+  }
+  farWalk(x0, w);
+}
+
+function bVictory(x0, w, i, tl) {
+  const m = mod(i, 6);
+  if (m === 0) {
+    const cx = x0 + w;
+    glow(cx, 0.2 * H, 0.5 * H, 0xFFFFE0B0, 50);
+    poly([cx - 0.045 * H, 0.48 * H, cx - 0.012 * H, (tl - 0.05) * H, cx + 0.012 * H, (tl - 0.05) * H, cx + 0.045 * H, 0.48 * H], 0xFFA8A49C);
+    line(cx, 0.48 * H, cx, (tl - 0.05) * H, 0xFFC8C4BC, 0.006 * H);
+    rect(cx - 0.25 * H, 0.48 * H, cx + 0.25 * H, 0.6 * H, 0xFF8A867E);
+    rect(cx - 0.27 * H, 0.47 * H, cx + 0.27 * H, 0.49 * H, 0xFF9A968E);
+    for (let k = 0; k < 5; k++) figure(cx + (-0.2 + k * 0.1) * H, 0.47 * H, 0.1 * H, k % 2 ? STAND : [0, -0.2, 0.2, 0.3, 0.1, 0.3, 0.5, 2.4, 0.3, 0, 0, 0], 1, 0xFF5A4A30);
+  } else if (m !== 1) {
+    lowShop(x0, w, i, pick(["รถตู้ → หมอชิต", "รถตู้ → บางนา", "รถตู้ → พัทยา", "ก๋วยเตี๋ยว"], rnd(i, 420)), 0xFF1E5AC8);
+    rect(x0, 0.36 * H, x0 + w + 1, 0.39 * H, 0xFF8E8E8A);
+    rect(x0, 0.39 * H, x0 + w + 1, 0.4 * H, 0xFF5E5E5C);
+  }
+  farWalk(x0, w);
+}
+
+function prasat(cx, base, hgt) {
+  glow(cx, base - hgt * 0.5, hgt * 0.8, 0xFFFFC060, 60);
+  rect(cx - 0.07 * H, base - 0.12 * H, cx + 0.07 * H, base, 0xFFF0ECE4);
+  for (let k = 0; k < 4; k++) { const ww = (0.11 - k * 0.022) * H, yb = base - (0.12 + k * 0.035) * H; poly([cx - ww, yb, cx, yb - 0.05 * H, cx + ww, yb], k % 2 ? 0xFF1E6A3A : 0xFFC0401A); line(cx - ww, yb, cx, yb - 0.05 * H, 0xFFD8A830, 0.003 * H); line(cx + ww, yb, cx, yb - 0.05 * H, 0xFFD8A830, 0.003 * H); }
+  poly([cx - 0.018 * H, base - 0.26 * H, cx, base - hgt, cx + 0.018 * H, base - 0.26 * H], 0xFFE8C040);
+  for (let k = 0; k < 5; k++) rect(cx - (0.02 - k * 0.003) * H, base - (0.27 + k * 0.03) * H, cx + (0.02 - k * 0.003) * H, base - (0.26 + k * 0.03) * H, 0xFFD0A028);
+}
+
+function bPalace(x0, w, i, tl) {
+  for (let k = 0; k < 2; k++) if (rnd(i * 2 + k, 430) > 0.25) prasat(x0 + w * (0.25 + k * 0.5), 0.42 * H, (0.3 + rnd(i * 2 + k, 431) * 0.2) * H);
+  rect(x0, 0.42 * H, x0 + w + 1, 0.6 * H, 0xFFEAE4D8);
+  for (let x = x0; x < x0 + w; x += 0.04 * H) rect(x, 0.395 * H, x + 0.022 * H, 0.42 * H, 0xFFEAE4D8);
+  line(x0, 0.45 * H, x0 + w + 1, 0.45 * H, 0x33000000, 0.003 * H);
+  if (mod(i, 7) === 3) {
+    rect(x0 + w * 0.3, 0.47 * H, x0 + w * 0.7, 0.6 * H, 0xFF7A1A1A);
+    fill(0xFF7A1A1A); cv.beginPath(); cv.arc(x0 + w / 2, 0.47 * H, w * 0.2, PI, 0); cv.fill();
+    stroke(0xFFD8A830, 0.004 * H); cv.beginPath(); cv.arc(x0 + w / 2, 0.47 * H, w * 0.2, PI, 0); cv.stroke();
+  }
+  glow(x0 + w / 2, 0.5 * H, w * 0.5, 0xFFFFE0A0, 50);
+  farWalk(x0, w);
+}
+
+function bThonglor(x0, w, i, tl) {
+  const floors = 2 + ((rnd(i, 440) * 3) | 0), topY = 0.45 - 0.16 * floors;
+  rect(x0, topY * H, x0 + w + 1, 0.6 * H, pick([0xFF4A4038, 0xFF4E4E4C, 0xFF3A3430, 0xFF5A5048], rnd(i, 441)));
+  for (let k = 1; k <= floors; k++) for (let n = 0; n < 2; n++) floorWindow(x0 + (n + 0.5) * w / 2, 0.45 - 0.16 * k, i * 67 + k * 3 + n);
+  if (rnd(i, 442) > 0.6) for (let k = 0; k < 30; k++) circle(x0 + rnd(i * 30 + k, 443) * w, (0.3 + rnd(i * 30 + k, 444) * 0.14) * H, 0.012 * H, pick([0xFF1E4A2A, 0xFF2A5A34, 0xFF183A22], rnd(k, 445)));
+  const style = (rnd(i, 446) * 4) | 0;
+  rect(x0 + 0.01 * H, 0.47 * H, x0 + w - 0.01 * H, 0.6 * H, style === 3 ? 0xFF4A3420 : 0xFF2A1E14);
+  glow(x0 + w / 2, 0.54 * H, w * 0.55, 0xFFFFB860, 90);
+  if (style === 0) {
+    for (const s of [0.25, 0.75]) { glow(x0 + w * s, 0.5 * H, 0.04 * H, 0xFFFF3020, 120); oval(x0 + w * s - 0.016 * H, 0.485 * H, x0 + w * s + 0.016 * H, 0.52 * H, 0xFFE02020); }
+    for (let k = 0; k < 4; k++) rect(x0 + w * (0.35 + k * 0.08), 0.47 * H, x0 + w * (0.42 + k * 0.08), 0.52 * H, 0xFF1A2A5A);
+  } else if (style === 1) for (let k = 0; k < 5; k++) { const bx = x0 + w * (0.15 + k * 0.17); line(bx, 0.47 * H, bx, 0.5 * H, 0xFF333333, 0.002 * H); glow(bx, 0.505 * H, 0.025 * H, 0xFFFFC060, 200); }
+  rect(x0, 0.45 * H, x0 + w, 0.47 * H, 0xFF14100C);
+  text(["居酒屋 IZAKAYA", "SPECIALTY COFFEE", "CRAFT BEER · 20 TAPS", "OMAKASE おまかせ"][style], x0 + w / 2, 0.465 * H, 0.016 * H, 0xFFF0E0C0);
+  farWalk(x0, w);
+}
+
+function bRca(x0, w, i, tl) {
+  const top = 0.12;
+  for (let k = 0; k < 2; k++) {
+    const a = -PI / 2 + sin(t * 0.7 + k * 2.5 + i) * 0.7, bx = x0 + w * (0.3 + 0.4 * k);
+    const g = cv.createLinearGradient(bx, top * H, bx + cos(a) * H, top * H + sin(a) * H);
+    g.addColorStop(0, "rgba(255,255,230,0.35)"); g.addColorStop(1, "rgba(255,255,230,0)");
+    cv.strokeStyle = g; cv.lineWidth = 0.03 * H; cv.beginPath(); cv.moveTo(bx, top * H); cv.lineTo(bx + cos(a) * 1.2 * H, top * H + sin(a) * 1.2 * H); cv.stroke();
+  }
+  rect(x0, top * H, x0 + w + 1, 0.6 * H, 0xFF0C0A12);
+  for (let k = 0; k < 8; k++) {
+    const hue = mod(t * 80 + k * 30 + i * 45, 360), bx = x0 + w * k / 8;
+    cv.fillStyle = "hsla(" + hue.toFixed(0) + ",95%,55%," + (0.5 + 0.4 * sin(t * 6 + k)).toFixed(2) + ")";
+    cv.fillRect(bx + 0.004 * H, (top + 0.02) * H, w / 8 - 0.008 * H, 0.22 * H);
+  }
+  if (mod(i, 3) === 0) neonBox(x0 + w / 2, 0.39 * H, pick(["ONYX", "ROUTE 66", "CLUB 808", "LEVELS"], rnd(i, 450)), 0.05 * H, pick(NEON, rnd(i, 451)), i);
+  rect(x0 + w * 0.3, 0.46 * H, x0 + w * 0.7, 0.6 * H, 0xFF2A0A1A);
+  glow(x0 + w / 2, 0.53 * H, w * 0.4, 0xFFFF2060, 120);
+  for (let k = 0; k < 4; k++) circle(x0 + w * (0.15 + k * 0.233), 0.57 * H, 0.008 * H, 0xFFD8A830);
+  stroke(0xFFC01030, 0.006 * H); cv.beginPath(); cv.moveTo(x0 + w * 0.15, 0.575 * H);
+  for (let k = 1; k < 4; k++) cv.quadraticCurveTo(x0 + w * (0.15 + (k - 0.5) * 0.233), 0.59 * H, x0 + w * (0.15 + k * 0.233), 0.575 * H);
+  cv.stroke();
+  farWalk(x0, w);
+}
+
+function bAsiatique(x0, w, i, tl) {
+  const m = mod(i, 8);
+  if (m === 3) {
+    const cx = x0 + w * 1.5, cy = 0.2 * H, R = 0.33 * H, rot = t * 0.12;
+    line(cx, cy, cx - 0.15 * H, 0.6 * H, 0xFF8A8A90, 0.012 * H); line(cx, cy, cx + 0.15 * H, 0.6 * H, 0xFF8A8A90, 0.012 * H);
+    for (let k = 0; k < 16; k++) { const a = rot + k * PI / 8; line(cx, cy, cx + cos(a) * R, cy + sin(a) * R, 0x88AAAAAA, 0.003 * H); }
+    stroke(withA(pick(NEON, rnd(Math.floor(t), 452)), 230), 0.008 * H); cv.beginPath(); cv.arc(cx, cy, R, 0, PI * 2); cv.stroke();
+    for (let k = 0; k < 16; k++) { const a = rot + k * PI / 8, gx = cx + cos(a) * R, gy = cy + sin(a) * R; rrect(gx - 0.018 * H, gy, gx + 0.018 * H, gy + 0.03 * H, 0.006 * H, NEON[k % NEON.length]); }
+    circle(cx, cy, 0.025 * H, 0xFFD8D8E0);
+  }
+  if (m < 4 || m > 6) {
+    poly([x0, 0.3 * H, x0 + w / 2, 0.22 * H, x0 + w + 1, 0.3 * H], 0xFF4A2A20);
+    rect(x0, 0.3 * H, x0 + w + 1, 0.6 * H, 0xFF6A3A2A);
+    for (let y = 0.32 * H; y < 0.45 * H; y += 0.02 * H) line(x0, y, x0 + w, y, 0x22000000, 0.002 * H);
+    for (let k = 0; k < 2; k++) { const ax = x0 + w * (0.25 + k * 0.5); fill(0xFFFFC870); cv.beginPath(); cv.moveTo(ax - 0.04 * H, 0.42 * H); cv.lineTo(ax - 0.04 * H, 0.36 * H); cv.arc(ax, 0.36 * H, 0.04 * H, PI, 0); cv.lineTo(ax + 0.04 * H, 0.42 * H); cv.fill(); }
+    if (mod(i, 5) === 1) neonBox(x0 + w / 2, 0.29 * H, "ASIATIQUE", 0.035 * H, 0xFFFFD890, i);
+    rect(x0 + 0.01 * H, 0.47 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFF3A2414);
+    glow(x0 + w / 2, 0.54 * H, w * 0.6, 0xFFFFC070, 90);
+  } else {
+    rect(x0 + 0.05 * H, 0.52 * H, x0 + w - 0.05 * H, 0.6 * H, 0xFF5A3A2A);
+    glow(x0 + w / 2, 0.55 * H, w * 0.4, 0xFFFFC070, 80);
+  }
+  farWalk(x0, w);
+}
+
+const NANA_BARS = ["RAINBOW 4", "LOLLIPOP", "BILLBOARD", "ANGEL", "GO GO", "PLAYSKOOL", "ELECTRIC"];
+function bNana(x0, w, i, tl) {
+  rect(x0, 0.09 * H, x0 + w + 1, 0.6 * H, 0xFF100A14);
+  for (let L = 0; L < 3; L++) {
+    const y0 = (0.45 - 0.12 * (L + 1)) * H, y1 = y0 + 0.12 * H, nc = pick(NEON, rnd(i * 3 + L, 460));
+    rect(x0 + 0.01 * H, y0 + 0.02 * H, x0 + w - 0.01 * H, y1, withA(nc, 40));
+    neonBox(x0 + w / 2, y0 + 0.06 * H, pick(NANA_BARS, rnd(i * 3 + L, 461)), 0.026 * H, nc, i * 3 + L);
+    line(x0, y1 - 0.003 * H, x0 + w + 1, y1 - 0.003 * H, 0xFF888890, 0.004 * H);
+    for (let x = x0; x < x0 + w; x += 0.025 * H) line(x, y1 - 0.025 * H, x, y1, 0xFF555560, 0.002 * H);
+    if (rnd(i * 3 + L, 462) > 0.5) figure(x0 + w * 0.2, y1, 0.07 * H, danceP(t * 4 + L + i, (L + i) & 3), 1, 0xEE0A0610);
+  }
+  if (mod(i, 7) === 0) neonBox(x0 + w, 0.07 * H, "NANA PLAZA", 0.05 * H, 0xFFFF2D95, i);
+  rect(x0 + 0.01 * H, 0.45 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFF1A0A1E);
+  glow(x0 + w / 2, 0.53 * H, w * 0.5, pick(NEON, rnd(i, 463)), 100);
+  farWalk(x0, w);
+}
+
+const ARAB_SIGNS = [["مطعم", "RESTAURANT"], ["شيشة", "SHISHA"], ["حلال", "HALAL"], ["فندق", "HOTEL"], ["كباب", "KEBAB"], ["قهوة", "COFFEE"]];
+function bArab(x0, w, i, tl) {
+  const topY = 0.45 - 0.48;
+  rect(x0, topY * H, x0 + w + 1, 0.6 * H, pick([0xFF5A4E3E, 0xFF4E4436, 0xFF5E5040], rnd(i, 470)));
+  for (let k = 1; k <= 3; k++) for (let n = 0; n < 2; n++) {
+    const ax = x0 + (n + 0.5) * w / 2, ay = (0.45 - 0.16 * k + 0.06) * H, lit = rnd(i * 6 + k * 2 + n, 471) > 0.4;
+    fill(lit ? 0xFFE8B868 : 0xFF141418); cv.beginPath(); cv.moveTo(ax - 0.03 * H, ay + 0.07 * H); cv.lineTo(ax - 0.03 * H, ay); cv.arc(ax, ay, 0.03 * H, PI, 0); cv.lineTo(ax + 0.03 * H, ay + 0.07 * H); cv.fill();
+    if (lit) glow(ax, ay + 0.03 * H, 0.06 * H, 0xFFE8B868, 50);
+  }
+  const [ar, en] = pick(ARAB_SIGNS, rnd(i, 472)), nc = pick([0xFF39FF88, 0xFFFFD23F, 0xFF00E5FF], rnd(i, 473));
+  neonBox(x0 + w / 2, 0.41 * H, ar, 0.035 * H, nc, i);
+  text(en, x0 + w / 2, 0.44 * H, 0.014 * H, nc);
+  for (let k = 0; k < 3; k++) { const lx = x0 + w * (0.2 + k * 0.3), ly = 0.47 * H + sin(t + k) * 0.002 * H, lc = pick([0xFFFF5A36, 0xFF39FF88, 0xFF00E5FF, 0xFFFFD23F], rnd(i * 3 + k, 474)); line(lx, 0.45 * H, lx, ly, 0xFF333333, 0.002 * H); glow(lx, ly + 0.015 * H, 0.03 * H, lc, 150); poly([lx, ly, lx + 0.012 * H, ly + 0.015 * H, lx, ly + 0.035 * H, lx - 0.012 * H, ly + 0.015 * H], lc); }
+  rect(x0 + 0.01 * H, 0.5 * H, x0 + w - 0.01 * H, 0.6 * H, 0xFF3A2618);
+  glow(x0 + w / 2, 0.55 * H, w * 0.5, 0xFFFFB860, 90);
+  farWalk(x0, w);
+}
+
+function bStation(x0, w, i, tl) {
+  const m = mod(i, 6);
+  if (m === 0) {
+    const cx = x0 + w * 1.5;
+    glow(cx, 0.35 * H, 0.7 * H, 0xFFFFD8A0, 60);
+    rect(cx - 0.85 * H, 0.2 * H, cx + 0.85 * H, 0.6 * H, 0xFFC8B898);
+    fill(0xFFFFD890); cv.beginPath(); cv.moveTo(cx - 0.38 * H, 0.5 * H); cv.arc(cx, 0.5 * H, 0.38 * H, PI, 0); cv.closePath(); cv.fill();
+    stroke(0xFF6A5A40, 0.004 * H);
+    for (let k = 1; k < 8; k++) { const a = PI + k * PI / 8; cv.beginPath(); cv.moveTo(cx, 0.5 * H); cv.lineTo(cx + cos(a) * 0.38 * H, 0.5 * H + sin(a) * 0.38 * H); cv.stroke(); }
+    for (const r of [0.19, 0.3]) { cv.beginPath(); cv.arc(cx, 0.5 * H, r * H, PI, 0); cv.stroke(); }
+    stroke(0xFF8A7A60, 0.012 * H); cv.beginPath(); cv.arc(cx, 0.5 * H, 0.38 * H, PI, 0); cv.stroke();
+    for (const s of [-1, 1]) for (const d of [0.5, 0.7]) rect(cx + s * d * H - 0.02 * H, 0.22 * H, cx + s * d * H + 0.02 * H, 0.6 * H, 0xFFB8A888);
+    circle(cx, 0.06 * H, 0.06 * H, 0xFFF0ECE0); stroke(0xFF333333, 0.004 * H); cv.beginPath(); cv.arc(cx, 0.06 * H, 0.06 * H, 0, PI * 2); cv.stroke();
+    const mins = 23 * 60 + 47 + t / 6;
+    line(cx, 0.06 * H, cx + sin(mins / 720 * 2 * PI) * 0.03 * H, 0.06 * H - cos(mins / 720 * 2 * PI) * 0.03 * H, 0xFF111111, 0.006 * H);
+    line(cx, 0.06 * H, cx + sin(mins / 60 * 2 * PI) * 0.045 * H, 0.06 * H - cos(mins / 60 * 2 * PI) * 0.045 * H, 0xFF111111, 0.004 * H);
+    rect(cx - 0.3 * H, 0.15 * H, cx + 0.3 * H, 0.19 * H, 0xFF6A1A1A);
+    text("สถานีกรุงเทพ · HUA LAMPHONG", cx, 0.18 * H, 0.025 * H, 0xFFFFE0A0);
+  } else if (m > 2) {
+    lowShop(x0, w, i, pick(["HOSTEL", "โจ๊ก", "TRAIN TICKETS", "ข้าวมันไก่"], rnd(i, 480)), 0xFF8A3A1A);
+  }
+  farWalk(x0, w);
+}
+
+function bWetmarket(x0, w, i, tl) {
+  rect(x0, 0.2 * H, x0 + w + 1, 0.6 * H, 0xFF1A1C1E);
+  poly([x0, 0.38 * H, x0 + w + 1, 0.36 * H, x0 + w + 1, 0.41 * H, x0, 0.43 * H], rnd(i, 490) > 0.5 ? 0xFF2A5AC8 : 0xFFE87A2A);
+  for (let k = 0; k < 2; k++) { const lx = x0 + w * (0.2 + k * 0.5); line(lx, 0.45 * H, lx + 0.12 * H, 0.45 * H, 0xFFF0FFF8, 0.006 * H); glow(lx + 0.06 * H, 0.45 * H, 0.09 * H, 0xFFE0FFF0, 90); }
+  if (rnd(i, 491) > 0.5) for (let k = 0; k < 4; k++) { const hx = x0 + w * (0.2 + k * 0.2); line(hx, 0.43 * H, hx, 0.47 * H, 0xFF888888, 0.002 * H); oval(hx - 0.015 * H, 0.47 * H, hx + 0.015 * H, 0.52 * H, 0xFFE89A90); }
+  else text("ตลาดคลองเตย", x0 + w / 2, 0.5 * H, 0.026 * H, 0xFFFFFFFF);
+  for (let k = 0; k < 3; k++) {
+    const tx = x0 + w * (0.2 + k * 0.3);
+    oval(tx - 0.05 * H, 0.55 * H, tx + 0.05 * H, 0.6 * H, k % 2 ? 0xFF2A5AC8 : 0xFFC82A2A);
+    for (let f = 0; f < 3; f++) oval(tx - 0.035 * H + f * 0.022 * H, 0.548 * H, tx - 0.015 * H + f * 0.022 * H, 0.558 * H, 0xFFC8D0D8);
+  }
+  rect(x0 + w * 0.42, 0.53 * H, x0 + w * 0.58, 0.6 * H, 0x99E8F8FF);
+  farWalk(x0, w);
+}
+
+// ---------------------------------------------------------------- more events
+
+function evKpop(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, style = Math.floor(lt / 4) % 2 ? 1 : 0;
+  rect(cx + 0.3 * U, G - 0.08 * U, cx + 0.36 * U, G, 0xFF1A1A1A); circle(cx + 0.33 * U, G - 0.055 * U, 0.02 * U, 0xFF444444); circle(cx + 0.33 * U, G - 0.02 * U, 0.012 * U, 0xFF444444);
+  for (let n = 0; n < 4; n++) figure(cx + (-0.27 + n * 0.17) * U, G, S, danceP(lt * 5, style), 1, 0xFFF8E0D0, { skirt: [0xFFFFB0D0, 0xFFB0E0FF, 0xFFFFF0A0, 0xFFD0B0FF][n], hair: 0xFF1A1010 });
+  if (mod(lt, 8) < 2) bubble(cx, G - S * 1.3, "K-POP cover! ♡", 0.026 * H, 1);
+}
+
+function evLizard(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, k = mod(lt, 11) / 11, x = cx + lerp(-0.5, 0.5, k) * U, w = sin(lt * 6);
+  cv.globalAlpha = smooth(k * 7) * (1 - smooth((k - 0.86) * 7));
+  const lc = 0xFF3A4030;
+  for (const [lx, ph] of [[-0.06, 0], [0.05, PI]]) line(x + lx * U, G - 0.015 * U, x + lx * U + sin(lt * 6 + ph) * 0.015 * U, G, lc, 0.008 * U);
+  stroke(lc, 0.012 * U); cv.beginPath(); cv.moveTo(x - 0.08 * U, G - 0.02 * U); cv.quadraticCurveTo(x - 0.16 * U, G - 0.01 * U + w * 0.02 * U, x - 0.24 * U, G - 0.005 * U); cv.stroke();
+  oval(x - 0.09 * U, G - 0.035 * U, x + 0.08 * U, G - 0.005 * U, lc);
+  for (let s = 0; s < 4; s++) circle(x - 0.06 * U + s * 0.035 * U, G - 0.022 * U, 0.004 * U, 0xFFC8B850);
+  oval(x + 0.07 * U, G - 0.032 * U, x + 0.12 * U, G - 0.015 * U, lc);
+  if (mod(lt, 1) < 0.3) line(x + 0.12 * U, G - 0.022 * U, x + 0.15 * U, G - 0.022 * U, 0xFFE04060, 0.003 * U);
+  cv.globalAlpha = 1;
+  const scared = Math.abs(x - (cx + 0.25 * U)) < 0.15 * U;
+  figure(cx + 0.25 * U + (scared ? 0.05 * U : 0), G, S, scared ? cheerP(lt * 4) : STAND, -1, 0xFFE8D0B8, { shirt: 0xFF2A9A5A });
+  if (scared) bubble(cx + 0.3 * U, G - S * 1.3, ["เหี้ย!!", "варан!!"], 0.026 * H, 1);
+}
+
+function evJoggers(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  for (let n = 0; n < 3; n++) {
+    const k = mod(lt * 0.12 + n * 0.33, 1);
+    cv.globalAlpha = smooth(k * 8) * (1 - smooth((k - 0.88) * 8));
+    figure(cx + lerp(0.55, -0.55, k) * U, G, S, walkP(lt * 10 + n, true), -1, 0xFFE8D0B8, { shirt: [0xFFFF5A36, 0xFF00B0E5, 0xFFE8E8E8][n] });
+  }
+  cv.globalAlpha = 1;
+}
+
+function evAerobics(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, st = Math.floor(lt / 3) % 2 ? 0 : 3;
+  rect(cx - 0.08 * U, G - 0.03 * U, cx + 0.08 * U, G, 0xFF4A3A2A);
+  figure(cx, G - 0.03 * U, S, danceP(lt * 6, st), -1, 0xFFE0C0A0, { shirt: 0xFFFF2D95, mic: true });
+  rect(cx + 0.1 * U, G - 0.04 * U, cx + 0.16 * U, G, 0xFF222222); circle(cx + 0.115 * U, G - 0.02 * U, 0.01 * U, 0xFF555555); circle(cx + 0.145 * U, G - 0.02 * U, 0.01 * U, 0xFF555555);
+  for (let n = 0; n < 5; n++) figure(cx + (-0.4 + n * 0.12 + (n > 2 ? 0.32 : 0)) * U, G + 0.015 * U, S * 0.9, danceP(lt * 6 - 0.3, st), 1, 0xFFE0C8A8, { shirt: pick([0xFFE8E8E8, 0xFF8AC8E8, 0xFFE8A0C0, 0xFFA0E8A0], rnd(j * 5 + n, 500)) });
+  if (mod(lt, 6) < 2) bubble(cx, G - S * 1.4, ["หนึ่ง สอง สาม สี่!", "раз, два, три, четыре!"], 0.026 * H, 1);
+}
+
+function evThaiDance(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  for (let n = 0; n < 3; n++) {
+    const x = cx + (-0.2 + n * 0.2) * U, ph = lt * 1.2 + n * 0.5;
+    const P = [0.1 * sin(ph), 0.3, 0.6, -0.1, 0.3, 1.9 + 0.5 * sin(ph), -1.2, 2.4 + 0.4 * sin(ph + 1), 1.2, 0.08, 0, 0.15 * sin(ph)];
+    figure(x, G, S, P, n === 1 ? -1 : 1, 0xFFF0D8C0, { shirt: 0xFFD8A830, skirt: 0xFFB01818 });
+    const hy = G - S * (0.9 - 0.08);
+    poly([x - S * 0.06, hy - S * 0.03, x + sin(0.1 * sin(ph)) * S * 0.1, hy - S * 0.32, x + S * 0.06, hy - S * 0.03], 0xFFE8C040);
+  }
+  const P = SIT.slice(); P[5] = 1.2 + 0.3 * sin(lt * 8); P[7] = 1.2 + 0.3 * sin(lt * 8 + 2);
+  figure(cx + 0.38 * U, G, S, P, -1, 0xFFC8A070, { shirt: 0xFFF0F0F0 });
+  rect(cx + 0.27 * U, G - 0.05 * U, cx + 0.34 * U, G - 0.04 * U, 0xFF8A5A30);
+  for (let k = 0; k < 5; k++) rect(cx + (0.272 + k * 0.013) * U, G - 0.055 * U, cx + (0.281 + k * 0.013) * U, G - 0.05 * U, 0xFFD8B080);
+}
+
+function evMinivan(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rrect(cx - 0.05 * U, G - 0.13 * U, cx + 0.32 * U, G - 0.02 * U, 0.02 * U, 0xFFE8E8EC);
+  for (let k = 0; k < 4; k++) { rect(cx + (-0.02 + k * 0.08) * U, G - 0.115 * U, cx + (0.045 + k * 0.08) * U, G - 0.075 * U, 0xFF2A3A4A); circle(cx + (0.012 + k * 0.08) * U, G - 0.09 * U, 0.013 * U, 0xFF111111); circle(cx + (0.03 + k * 0.08) * U, G - 0.095 * U, 0.012 * U, 0xFF111111); }
+  wheel(cx + 0.02 * U, G - 0.02 * U, 0.022 * U); wheel(cx + 0.25 * U, G - 0.02 * U, 0.022 * U);
+  figure(cx - 0.15 * U, G, S, waveP(lt), 1, 0xFFC8A070, { shirt: 0xFFE8A030 });
+  for (let n = 0; n < 2; n++) figure(cx - (0.32 + n * 0.12) * U, G, S * 0.95, walkP(lt * 5 + n, false), 1, 0xFFE0C8A8, { shirt: pick([0xFF2A6A9A, 0xFF8A2A5A], rnd(j * 2 + n, 510)) });
+  bubble(cx - 0.15 * U, G - S * 1.2, mod(lt, 6) < 3 ? ["หมอชิต! หมอชิต!", "Мо Чит! Мо Чит!"] : ["ขึ้นเลย!", "залезай!"], 0.026 * H, 1);
+}
+
+function evGuards(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  for (let n = 0; n < 3; n++) {
+    const P = walkP(lt * 5, false); P[7] = 0.2; P[8] = 2.6; P[1] *= 1.3; P[3] *= 1.3;
+    const x = cx + (-0.2 + n * 0.2) * U + sin(lt * 0.4) * 0.05 * U;
+    figure(x, G, S, P, 1, 0xFFE0C8A8, { shirt: 0xFFF4F4F4 });
+    line(x + 0.03 * S, G - S * 0.5, x + 0.03 * S, G - S * 1.25, 0xFF2A2A2A, 0.008 * U);
+    rect(x - S * 0.09, G - S * 1.06, x + S * 0.09, G - S * 0.98, 0xFFF4F4F4);
+  }
+}
+
+function evPalaceScam(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, c = mod(lt, 10);
+  cv.save(); cv.translate(cx + 0.22 * U, G); cv.scale(-0.17 * U, 0.17 * U); tuktuk(); cv.restore();
+  figure(cx, G, S, c < 5 ? waveP(lt) : STAND, -1, 0xFFC8A070, { shirt: 0xFFE8A030 });
+  figure(cx - 0.18 * U, G, S * 1.05, STAND, 1, 0xFFFF9A8A, { shirt: 0xFFF0F0F0, hat: "sun", bag: 0xFF3A3A6A });
+  const lines = [["Grand Palace closed today!", "дворец сегодня закрыт!"], ["Серьёзно?", ""], ["Gem shop! Very cheap!", "ювелирка, дёшево!"], ["Ага, щас", ""]];
+  const n = Math.floor(c / 2.5), L = lines[n];
+  bubble(cx + (n % 2 ? -0.18 : 0) * U, G - S * 1.25, L[1] ? L : L[0], 0.026 * H, 1);
+}
+
+function evBackpackers(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, k = mod(lt * 0.07, 1);
+  cv.globalAlpha = smooth(k * 8) * (1 - smooth((k - 0.88) * 8));
+  for (let n = 0; n < 3; n++) {
+    const x = cx + (lerp(-0.5, 0.5, k) - n * 0.17) * U, map = n === 0 && mod(lt, 6) < 3;
+    const P = walkP(lt * 4 + n, false); if (map) { P[5] = 1.4; P[6] = 0.6; P[7] = 1.4; P[8] = 0.6; }
+    figure(x, G, S, P, 1, 0xFFFFB0A0, { shirt: pick([0xFF4AC8E8, 0xFFE87A2A, 0xFF8AC84A], rnd(j * 3 + n, 520)), bag: 0xFF3A5A3A, hat: n === 1 ? "sun" : undefined });
+    rrect(x - S * 0.32, G - S * 0.95, x - S * 0.06, G - S * 0.45, S * 0.05, 0xFF2A4A6A);
+    if (map) rect(x + S * 0.15, G - S * 0.65, x + S * 0.35, G - S * 0.5, 0xFFF0E8D0);
+  }
+  cv.globalAlpha = 1;
+  if (mod(lt, 9) < 2) bubble(cx + lerp(-0.5, 0.5, k) * U, G - S * 1.2, "Where is hostel??", 0.026 * H, 1);
+}
+
+function evPomStroller(cx, j, lt) {
+  const S = S_(), G = GY(), U = H, k = mod(lt * 0.06, 1), x = cx + lerp(0.5, -0.5, k) * U;
+  cv.globalAlpha = smooth(k * 8) * (1 - smooth((k - 0.88) * 8));
+  const P = walkP(lt * 4, false); P[7] = 1.3; P[8] = 0.3; P[5] = 1.2; P[6] = 0.4;
+  figure(x, G, S, P, -1, 0xFFF8E8D8, { shirt: 0xFFE8D8F0, skirt: 0xFFE8D8F0, hair: 0xFF6A3A1A });
+  rect(x - S * 0.1, G - S * 0.95, x + S * 0.12, G - S * 0.9, 0xFF111111);
+  rrect(x - 0.13 * U, G - 0.08 * U, x - 0.05 * U, G - 0.03 * U, 0.01 * U, 0xFFFFC0D8);
+  fill(0xFFFFC0D8); cv.beginPath(); cv.arc(x - 0.09 * U, G - 0.08 * U, 0.04 * U, PI, 1.6 * PI); cv.lineTo(x - 0.09 * U, G - 0.08 * U); cv.fill();
+  circle(x - 0.09 * U, G - 0.085 * U, 0.018 * U, 0xFFE8A040); circle(x - 0.1 * U, G - 0.087 * U, 0.003 * U, 0xFF111111);
+  wheel(x - 0.12 * U, G - 0.01 * U, 0.01 * U); wheel(x - 0.06 * U, G - 0.01 * U, 0.01 * U);
+  line(x - 0.05 * U, G - 0.07 * U, x - 0.03 * U, G - S * 0.55, 0xFF888888, 0.003 * U);
+  if (mod(lt, 7) < 2.2) bubble(x, G - S * 1.2, ["ลูกแม่~", "мой малыш~"], 0.026 * H, cv.globalAlpha);
+  cv.globalAlpha = 1;
+}
+
+function evClubQueue(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  const P = STAND.slice(); P[5] = 1.4; P[6] = 1.8; P[7] = 1.4; P[8] = 1.8;
+  figure(cx + 0.3 * U, G, S * 1.15, P, -1, 0xFFB08060, { shirt: 0xFF111111 });
+  for (let n = 0; n < 4; n++) figure(cx + (0.12 - n * 0.13) * U, G, S * 0.95, mod(lt + n, 5) < 2.5 ? danceP(lt * 4 + n, n & 3) : STAND, 1, 0xFFE8D0B8, { shirt: pick(NEON, rnd(j * 4 + n, 530)), skirt: n % 2 ? pick(NEON, rnd(j * 4 + n, 531)) : undefined, hair: n % 2 ? 0xFF1A1010 : undefined });
+  for (const xx of [0.2, 0.42]) { line(cx + xx * U, G, cx + xx * U, G - 0.06 * U, 0xFFD8A830, 0.006 * U); }
+  if (mod(lt, 7) < 2.5) bubble(cx + 0.3 * U, G - S * 1.35, ["ขอดูบัตร", "паспорт покажи"], 0.026 * H, 1);
+}
+
+function evShisha(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.1 * U, G - 0.05 * U, cx + 0.1 * U, G - 0.04 * U, 0xFF6A4A2A);
+  line(cx, G - 0.04 * U, cx, G, 0xFF6A4A2A, 0.006 * U);
+  oval(cx - 0.025 * U, G - 0.11 * U, cx + 0.025 * U, G - 0.05 * U, 0xAA40A0C0);
+  line(cx, G - 0.11 * U, cx, G - 0.17 * U, 0xFFC8A040, 0.006 * U);
+  glow(cx, G - 0.175 * U, 0.015 * U, 0xFFFF6A1A, 200);
+  for (let n = 0; n < 3; n++) {
+    const x = cx + (-0.2 + n * 0.2 + (n === 1 ? 0.0 : 0)) * U, f = n < 1 ? 1 : -1, puffing = mod(lt + n * 1.7, 5) < 0.8;
+    const P = SIT.slice(); P[7] = puffing ? 2.2 : 1.1; P[8] = puffing ? 2.2 : 0.6;
+    figure(x, G, S, P, f, 0xFFC89A70, { shirt: pick([0xFFF0F0F0, 0xFF2A2A2A, 0xFF5A6A8A], rnd(j * 3 + n, 540)) });
+    stroke(0xFF333333, 0.003 * U); cv.beginPath(); cv.moveTo(cx, G - 0.08 * U); cv.quadraticCurveTo((cx + x) / 2, G, x + f * 0.03 * U, G - S * (puffing ? 0.85 : 0.5)); cv.stroke();
+    if (mod(lt + n * 1.7, 5) > 0.8 && mod(lt + n * 1.7, 5) < 3) for (let k = 0; k < 4; k++) { const mm = mod(lt + n * 1.7, 5) - 0.8 + k * 0.1; circle(x + f * (0.04 + mm * 0.04) * U, G - S * 0.88 - mm * 0.03 * U, (0.015 + mm * 0.015) * U, withA(0xE0E0E8, 90 * (1 - mm / 2.4))); }
+  }
+  if (mod(lt, 8) < 2) bubble(cx, G - S * 1.25, ["يلا", "погнали"], 0.026 * H, 1);
+}
+
+function evShawarma(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.12 * U, G - 0.08 * U, cx + 0.12 * U, G, 0xFFB8B8C0);
+  glow(cx - 0.04 * U, G - 0.16 * U, 0.06 * U, 0xFFFF6A1A, 140);
+  rect(cx - 0.075 * U, G - 0.24 * U, cx - 0.065 * U, G - 0.08 * U, 0xFFFF5A1A);
+  fill(0xFF8A4A1A); cv.beginPath(); cv.moveTo(cx - 0.06 * U, G - 0.23 * U); cv.lineTo(cx - 0.0 * U, G - 0.22 * U); cv.lineTo(cx - 0.015 * U, G - 0.09 * U); cv.lineTo(cx - 0.06 * U, G - 0.09 * U); cv.fill();
+  for (let k = 0; k < 6; k++) line(cx - 0.06 * U, G - (0.215 - k * 0.022 - mod(lt * 0.02, 0.022)) * U, cx - 0.005 * U, G - (0.21 - k * 0.022 - mod(lt * 0.02, 0.022)) * U, 0x55301000, 0.003 * U);
+  const P = STAND.slice(); P[7] = 1.4 + 0.4 * sin(lt * 8); P[8] = 0.5;
+  figure(cx + 0.07 * U, G - 0.0 * U, S, P, -1, 0xFFC89A70, { shirt: 0xFFF0F0F0 });
+  neonBox(cx, G - 0.27 * U, "SHAWARMA 80฿", 0.022 * U, 0xFF39FF88, j);
+  figure(cx - 0.25 * U, G, S, STAND, 1, 0xFFE0C8A8, { shirt: 0xFF2A6A9A });
+}
+
+function evFishVendor(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  rect(cx - 0.15 * U, G - 0.07 * U, cx + 0.15 * U, G - 0.06 * U, 0xFF8A8A8A);
+  for (const xx of [-0.13, 0.13]) line(cx + xx * U, G - 0.06 * U, cx + xx * U, G, 0xFF8A8A8A, 0.005 * U);
+  for (let k = 0; k < 5; k++) oval(cx + (-0.12 + k * 0.05) * U, G - 0.085 * U, cx + (-0.08 + k * 0.05) * U, G - 0.07 * U, 0xFFB8C4D0);
+  const chop = mod(lt * 2.5, 1) < 0.5;
+  const P = STAND.slice(); P[7] = chop ? 2.4 : 1.3; P[8] = 0.3;
+  figure(cx + 0.05 * U, G, S, P, -1, 0xFFC8A070, { shirt: 0xFF2A6A9A, baton: true });
+  if (mod(lt, 4) < 0.6) { const kk = mod(lt, 4) / 0.6; oval(cx - 0.05 * U, G - (0.09 + sin(kk * PI) * 0.08) * U, cx - 0.01 * U, G - (0.075 + sin(kk * PI) * 0.08) * U, 0xFFC8D4E0); }
+  if (mod(lt, 7) < 2.5) bubble(cx + 0.05 * U, G - S * 1.2, ["ปลาสด! ปลาสด!", "свежая рыба!"], 0.026 * H, 1);
+}
+
+function evIcePorters(cx, j, lt) {
+  const S = S_(), G = GY(), U = H;
+  for (let n = 0; n < 2; n++) {
+    const k = mod(lt * 0.1 + n * 0.5, 1), x = cx + lerp(-0.55, 0.55, k) * U;
+    cv.globalAlpha = smooth(k * 8) * (1 - smooth((k - 0.88) * 8));
+    const P = walkP(lt * 6 + n, false); P[0] = 0.15; P[7] = 2.6; P[8] = 0.6;
+    figure(x, G, S, P, 1, 0xFFB08060, { shirt: 0xFF5A5A5A });
+    rect(x - S * 0.2, G - S * 1.15, x + S * 0.15, G - S * 0.95, 0xCCE8F8FF);
+    if (n === 0 && k > 0.3 && k < 0.5) bubble(x, G - S * 1.3, ["หลบๆ!", "посторонись!"], 0.026 * H, cv.globalAlpha);
+  }
+  cv.globalAlpha = 1;
+}
+
 // ---------------------------------------------------------------- district events
 
 function evFireShow(cx, j, lt) {
@@ -1256,6 +1717,13 @@ function evScorpion(cx, j, lt) {
 }
 
 // ---------------------------------------------------------------- events
+
+const COMMENTS = new Map([
+  [evLizard, [["เหี้ย!", "варан! (и мат заодно)"]]],
+  [evPalaceScam, [["อย่าเชื่อ!", "не ведись!"]]],
+  [evPomStroller, [["หมาในรถเข็น...", "собака в коляске..."]]],
+  [evGuards, [["เท่ว่ะ", "чётко шагают"]]],
+]);
 
 function eventFn(j) {
   if (rnd(j, 140) < 0.08) return null;
