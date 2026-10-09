@@ -279,7 +279,8 @@ function figure(x, y, s, P, f, col, ex) {
     cv.beginPath(); cv.moveTo(nx, ny); cv.lineTo(ex1, ey1); cv.lineTo(hx2, hy2); cv.stroke();
     hands.push([hx2, hy2, a + e]);
   }
-  const hcX = nx + sin(P[0] + P[11]) * 0.1, hcY = ny - cos(P[0] + P[11]) * 0.1;
+  const ht = P[11] - 0.75 * LOOKUP;
+  const hcX = nx + sin(P[0] + ht) * 0.1, hcY = ny - cos(P[0] + ht) * 0.1;
   circle(hcX, hcY, 0.075, col);
   if (ex.hat === "cop") { rect(hcX - 0.08, hcY - 0.09, hcX + 0.08, hcY - 0.04, 0xFF20304A); rect(hcX - 0.02, hcY - 0.06, hcX + 0.11, hcY - 0.04, 0xFF20304A); }
   if (ex.hat === "sun") oval(hcX - 0.14, hcY - 0.08, hcX + 0.14, hcY - 0.03, 0xFFE8D8A0);
@@ -567,6 +568,7 @@ function update(dt) {
 
   updateSeller(dt, holding);
   updateTod();
+  updateJet();
   updateMusic(holding);
 }
 
@@ -580,7 +582,7 @@ function frame(ts) {
   cv.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawSky();
   cv.save();
-  cv.translate(0, OY);
+  cv.translate(jetShake * sin(t * 60) * 0.006 * H, OY + jetShake * cos(t * 53) * 0.006 * H);
   const dz = Math.min(drunk, 3);
   if (dz > 0.05) {
     cv.translate(W / 2, H * 0.9);
@@ -605,6 +607,7 @@ function frame(ts) {
   if (trip > 0.3) pinkElephant(W * 0.55 + sin(t * 0.35) * W * 0.25, -OY * 0.5 + 0.14 * H + sin(t * 0.9) * 0.03 * H, 0.18 * H * Math.min(1, (trip - 0.3) * 4));
   drawDudeBubble();
   cv.restore();
+  drawJet();
   todOverlay();
   if (trip > 0.02) tripFx(trip * 0.7);
   if (blurAmt > 0.01) blurFx(smooth(blurAmt));
@@ -2860,6 +2863,70 @@ function sfxCash() {
   sfxTone("square", 1318, 0, t0, 0.12, 0.08);
   sfxTone("square", 1760, 0, t0 + 0.09, 0.25, 0.08);
   sfxNoise(t0, 0.15, "highpass", 4000, 0.1, 0.005);
+}
+
+// ---------------------------------------------------------------- gripen flyby
+
+let jet = null, nextJetAt = 1e9, LOOKUP = 0, jetShake = 0;
+const JET_DBG = /[?&]jet/.test(location.search);
+
+function updateJet() {
+  if (nextJetAt === 1e9 && everHeld) nextJetAt = t + (JET_DBG ? 3 : 90);
+  if (!jet && t > nextJetAt) {
+    jet = { t0: t, dir: Math.random() < 0.5 ? 1 : -1, y: 0.08 + Math.random() * 0.06 };
+    nextJetAt = t + (JET_DBG ? 15 : 120 + Math.random() * 90);
+    sfxJet(jet.dir);
+    setTimeout(() => say(pick([["เชี่ย! กริพเพน!", "ебать, Грипен!"], ["โคตรดัง!", "охуеть как громко!"], ["กองทัพอากาศ!", "ВВС, сука!"]], Math.random()), 2.4), 700);
+  }
+  if (jet && t - jet.t0 > 4.5) jet = null;
+  const e = jet ? t - jet.t0 : 9;
+  LOOKUP = smooth(e / 0.5) * (1 - smooth((e - 3.2) / 0.8));
+  jetShake = Math.exp(-Math.pow((e - 1.2) / 0.5, 2));
+}
+
+function drawJet() {
+  if (!jet) return;
+  const e = t - jet.t0, k = e / 2.4, d = jet.dir;
+  const x = d > 0 ? lerp(-0.3 * SW, 1.3 * SW, k) : lerp(1.3 * SW, -0.3 * SW, k);
+  const y = jet.y * SH + sin(e * 2) * 0.004 * H;
+  const L = 0.34 * H;
+  const x0 = d > 0 ? -0.3 * SW : 1.3 * SW;
+  for (const dy of [-0.012, 0.01]) {
+    const g = cv.createLinearGradient(x0, 0, x, 0);
+    g.addColorStop(0, "rgba(255,255,255,0)"); g.addColorStop(1, "rgba(255,255,255,0.55)");
+    cv.strokeStyle = g; cv.lineWidth = 0.008 * H; cv.lineCap = "round";
+    cv.beginPath(); cv.moveTo(x0, y + dy * H + 0.01 * H); cv.lineTo(x - d * L * 0.5, y + dy * H); cv.stroke();
+  }
+  cv.save(); cv.translate(x, y); cv.scale(d * L, L);
+  const fl = 0.8 + 0.3 * sin(t * 50);
+  glow(-0.55, 0, 0.18 * fl, 0xFFFF8A2A, 230);
+  poly([-0.5, -0.025, -0.68 * fl - 0.02, 0, -0.5, 0.025], 0xFFFFD070);
+  poly([-0.5, -0.05, 0.25, -0.05, 0.5, 0, 0.25, 0.045, -0.5, 0.04], 0xFF8A929C);
+  poly([-0.42, 0.02, 0.05, 0.02, -0.2, 0.2, -0.42, 0.2], 0xFF6E7680);
+  poly([-0.48, -0.04, -0.3, -0.04, -0.44, -0.22, -0.5, -0.22], 0xFF7A828C);
+  poly([0.12, 0.0, 0.22, 0.0, 0.1, 0.07], 0xFF6E7680);
+  fill(0xFF1E3A6A); cv.beginPath(); cv.ellipse(0.22, -0.05, 0.1, 0.035, 0, PI, 2 * PI); cv.fill();
+  line(0.17, -0.07, 0.25, -0.075, 0x88FFFFFF, 0.008);
+  circle(-0.28, 0.12, 0.04, 0xFFC8102E); circle(-0.28, 0.12, 0.03, 0xFFFFFFFF); circle(-0.28, 0.12, 0.018, 0xFF241D4F);
+  line(-0.15, 0.2, -0.1, 0.24, 0xFF555555, 0.012);
+  cv.restore();
+}
+
+function sfxJet(dir) {
+  if (!sfxOn()) return;
+  const t0 = actx.currentTime, dur = 3.6;
+  const pan = actx.createStereoPanner ? actx.createStereoPanner() : null;
+  const n = noise(t0, dur), n2 = noise(t0, dur);
+  const lp = actx.createBiquadFilter(); lp.type = "lowpass";
+  lp.frequency.setValueAtTime(300, t0); lp.frequency.linearRampToValueAtTime(2500, t0 + 1.2); lp.frequency.linearRampToValueAtTime(250, t0 + dur);
+  const e = actx.createGain();
+  e.gain.setValueAtTime(0, t0); e.gain.linearRampToValueAtTime(0.7, t0 + 1.1); e.gain.linearRampToValueAtTime(0.15, t0 + 2.4); e.gain.linearRampToValueAtTime(0, t0 + dur);
+  n.connect(lp); n2.connect(lp); lp.connect(e);
+  const r = osc("sawtooth", 55, t0, t0 + dur); r.frequency.linearRampToValueAtTime(38, t0 + dur);
+  const rl = actx.createBiquadFilter(); rl.type = "lowpass"; rl.frequency.value = 120;
+  r.connect(rl); rl.connect(e);
+  if (pan) { pan.pan.setValueAtTime(-dir, t0); pan.pan.linearRampToValueAtTime(dir, t0 + 2.4); e.connect(pan); pan.connect(master); }
+  else e.connect(master);
 }
 
 // ---------------------------------------------------------------- music
