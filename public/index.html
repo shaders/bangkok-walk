@@ -18509,6 +18509,57 @@ else if (TRIP_Q && TRIP_BY[TRIP_Q]) {
   EVM.clear(); evTop = -1; STRUCT_RS.clear(); STRUCT_HH.clear();
 }
 
+// ================================================================ music pass (Max 17.10): one retrowave engine, districts as flavour on top
+// The backbone (pad, bass, arp, drums, leitmotif) always plays in A minor at one tempo. A district adds ornaments and a tune in the same key.
+KEYS.length = 0; KEYS.push(0);
+TEMPI.length = 0; TEMPI.push(1);
+const PENT_C = [60, 62, 64, 67, 69, 72, 74, 76, 79];
+const AM_SCALE = [69, 71, 72, 74, 76, 77, 79, 81];
+const genreNowM = genreNow;
+genreNow = function () { return "retro"; };
+function flavourNow() { const g = genreNowM(); return g === "retro" || g === "riverside" ? null : g; }
+function playFlavour(g, s, t0, st) {
+  const bar = Math.floor(s / 16), sp = s % 16, q = sp % 4, loop = Math.floor(bar / 4), ch = bar % 4;
+  if (bar < 4 || loop % 6 === 5) return;
+  const tune = loop % 4 < 2;
+  if (g === "techno") {
+    if (sp === 4 || sp === 12) kick(t0);
+    if (q === 2) hat(t0, true);
+    if (sp === 3 || sp === 10 || sp === 14) for (const m of CHORDS[ch]) arp(m + 24, t0, 0.03);
+  } else if (g === "lukthung") {
+    if (q === 0) ching(t0, sp % 8 === 4);
+    if (q === 2) block(t0, sp % 8 === 6);
+    if (tune) { const pos = ch * 16 + sp; for (const n of LT_MEL) if (n[0] === pos % 64) lead(n[1], t0, n[2] * st); }
+  } else if (g === "morlam") {
+    if (q === 2) ching(t0, false);
+    if (sp === 0) drone([57, 64, 69], t0, st * 16, 0.02);
+    if (tune && sp % 2 === 0) pluck(ML_RIFF[(sp + (bar % 2) * 4) % 16], t0, 0.06, 0.18, "sawtooth");
+  } else if (g === "china") {
+    if (sp === 0 && bar % 2 === 0) gong(t0);
+    if (q === 0) block(t0, sp === 0);
+    if (tune && sp % 2 === 0) pluck(PENT_C[(sp / 2 + bar * 3 + ((rnd(bar * 16 + sp, 470 + musSalt) * 3) | 0)) % PENT_C.length], t0, 0.07, 0.6, "triangle");
+  } else if (g === "arab") {
+    if (sp === 7 || sp === 10) kick(t0);
+    if (sp === 4 || sp === 12 || sp === 14) block(t0, true);
+    if (tune && (sp % 4 === 0 || sp === 6 || sp === 14)) { const i = ((bar * 5 + sp * 3 + (rnd(bar, 471 + musSalt) * 4)) | 0) % AM_SCALE.length; lead(AM_SCALE[i], t0, st * (sp === 6 ? 2 : 3)); }
+  } else if (g === "thai") {
+    if (sp === 0 && bar % 2 === 0) gong(t0);
+    if (q === 0) ching(t0, sp === 8);
+    if (tune && sp % 2 === 0) { const i = (sp / 2 + bar) % 8, run = sp < 8 ? i : 7 - i; pluck(TH_SCALE[run], t0, 0.08, 0.3, "triangle"); }
+  }
+}
+const playStepM = playStep;
+playStep = function (s, t0, st) {
+  playStepM(s, t0, st);
+  const g = flavourNow();
+  if (g && musK > 0.01) { routeK = musK; playFlavour(g, s, t0, st); routeK = 1; }
+};
+// the tape slows only when the finger is really off: not during a god-button scene, a scripted stop with the finger down, or a ride
+const updateMusicM = updateMusic;
+updateMusic = function (holding) {
+  updateMusicM(holding || !!fate || !!liftRide || pointers.size > 0 || keysDown.size > 0);
+};
+
 </script>
 </body>
 </html>

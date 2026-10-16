@@ -20,7 +20,7 @@ A guy in a yellow hoodie drags a red toy scooter on a rope through night Bangkok
 - Money: ATMs with a 220-baht fee, police shakedowns, tuk-tuk / massage / food / girl / ping-pong offers, 7-Eleven, laundry, stuff thrown from windows.
 - MRT stations and malls: up the escalator, along the deck, down again.
 - Fate rolls (dogs, pigeons, pickpocket, rain, lotto…), achievements kept in `localStorage`, a monologue that depends on place, time and state.
-- Day/night cycle, traffic lights, steps that knock the scooter over, procedural soundtrack per district (retrowave, techno, luk thung, mor lam, Chinese, Arabic, Thai classical; crickets and soft Mozart in Riverside). WebAudio, no audio files.
+- Day/night cycle, traffic lights, steps that knock the scooter over, procedural retrowave soundtrack in A minor at one tempo. Districts add flavour on top in the same key: techno kicks, luk thung ching and tune, mor lam riff, Chinese and Thai pentatonics, Arabic rhythm; crickets and soft Mozart in Riverside. The tape slows only when you really let go, never during a god-button scene or a ride. WebAudio, no audio files.
 - Russian and English subtitles (`?lang=ru|en`, remembered in `localStorage`). Swearing is toned down unless `?18` is in the URL.
 
 One self-contained `public/index.html`, no build, no dependencies.
